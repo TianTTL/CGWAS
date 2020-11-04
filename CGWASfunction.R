@@ -1,585 +1,1138 @@
-step1 <- function(ST_Datapath, ST_Filename, Clv, Bdd, Fdd){
-  for(i in 1:cgwasenv$.pheNum){
-    bpm <- as.data.frame(data.table::fread(paste0(ST_Datapath,ST_Filename[i]),header=T))
-    if (i == 1){
-      RsnpnumTmp <- nrow(bpm)
-      tm <- matrix(0,RsnpnumTmp,cgwasenv$.pheNum)
-      snpm <- bpm[, 1:3]
+step1 <- function(cgwasenv) {
+  # StatExtraction
+
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  naid <- unique(foreach(i=1:cgwasenv$.TRAIT_NUM,.combine="c",.inorder=F,.export='StatE1') %dopar% StatE1(i, cgwasenv))
+  printTmp <- foreach(i=1:cgwasenv$.TRAIT_NUM,.inorder=F,.export='StatE2') %dopar% StatE2(i, naid, cgwasenv)
+
+  write.table(naid, file.path(cgwasenv$.CGWAS_COLDATA_PATH, 'NA_list'), row.names = F, col.names = F)
+
+  stopCluster(sb)
+}
+
+step2 <- function(cgwasenv) {
+  # InflationCorr
+
+  normea <- integrate(ga,qchisq(cgwasenv$.CCP,1,lower.tail=F),qchisq(1,1),cgwasenv)$value
+  inseq <- ppoints(20000)
+
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  infm <- foreach(i=1:cgwasenv$.TRAIT_NUM,.combine="rbind",.inorder=T,.export='calinf') %dopar% calinf(i,inseq,normea,cgwasenv)
+
+  colnames(infm) <- c("UnCorrX2","Lambda","EstInf","CorrX2","CorrX2Ccp","EstEffProp")
+  write.table(signif(infm,5),file.path(cgwasenv$.CGWAS_INFCOR_PATH, "InflationStat.txt"),row.names=F,quote=F)
+
+  stopCluster(sb)
+}
+
+
+step3 <- function(cgwasenv) {
+  # CorEstimation
+
+  pairma <- t(combn(cgwasenv$.TRAIT_NUM, 2))
+  n <- nrow(pairma)
+
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  tresm <- foreach(i=1:n,.combine="rbind",.inorder=T,.export='CorE') %dopar% CorE(i, pairma, cgwasenv)
+
+  corm <- t(combn(cgwasenv$.TRAIT_NUM, 2))
+  n <- nrow(corm)
+  corm <- cbind(corm,signif(tresm, 5))
+  colnames(corm) <- c("Trait1","Trait2","GeneralCor","EstBgCor","EstEffCor")
+  write.table(corm,
+              file.path(cgwasenv$.CGWAS_INFCOR_PATH, "EstCorrelation.txt"),
+              row.names=F, quote=F)
+
+  stopCluster(sb)
+}
+
+step4 <- function(cgwasenv) {
+  # preGMA
+
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  normea <- integrate(ga,qchisq(cgwasenv$.CCP,1,lower.tail=F),qchisq(1,1),cgwasenv)$value
+
+  weieffs.tmp <- read.table(file.path(cgwasenv$.CGWAS_INFCOR_PATH, "InflationStat.txt"),
+                                   header=T,stringsAsFactors=F)
+  weieffs <- as.numeric(weieffs.tmp[,4])
+  weieffsccp <- as.numeric(weieffs.tmp[,5])
+
+  orgeffs <- cgwasenv$.TRAIT_EFFECT_SIZE; orgeffslist <- as.list(orgeffs)
+  dirclist <- rep(1,cgwasenv$.TRAIT_NUM); dirclist <- as.list(dirclist)
+  coeflist <- rep(1,cgwasenv$.TRAIT_NUM); coeflist <- as.list(coeflist)
+
+  dropm <- foreach(i=1:cgwasenv$.TRAIT_NUM,.inorder=F,.export='copyfun.tcomb.gmeta') %dopar% copyfun.tcomb.gmeta(i, cgwasenv)
+
+  coridm <- as.matrix(read.table(file.path(cgwasenv$.CGWAS_INFCOR_PATH, "EstCorrelation.txt"),
+                                 header=T,stringsAsFactors=F)[,c(1:2,4:5,3)])
+  orgcorm <- diag(cgwasenv$.TRAIT_NUM)
+  n <- 0
+  for(i in 2:nrow(orgcorm)){
+    orgcorm[i:nrow(orgcorm),i-1] <- orgcorm[i-1,i:nrow(orgcorm)] <- coridm[(n+1):(n+nrow(orgcorm)-i+1),3]
+    n <- n+nrow(orgcorm)-i+1
+  }
+
+  motjv <- abs(coridm[,3])
+
+  n <- cgwasenv$.TRAIT_NUM+1
+  roundn <- 1
+  existid <- rep(1,cgwasenv$.TRAIT_NUM)
+  rec <- c()
+  idlist <- as.list(1:cgwasenv$.TRAIT_NUM)
+
+  if(!all(motjv^2<0.64)){
+    orgresm <- as.data.frame(foreach(i=1:cgwasenv$.TRAIT_NUM,.combine="cbind",.inorder=T,.export='readtm.gmeta') %dopar%
+                               readtm.gmeta(i, cgwasenv))
+
+    while(!all(motjv^2<0.64)){
+      mtarid <- order(motjv,decreasing=T)[1]
+      selidv <- coridm[mtarid,1:2]
+      bgc <- coridm[mtarid,3]
+      dirclist[[n]] <- as.numeric(c(dirclist[[selidv[1]]],bgc/abs(bgc)*dirclist[[selidv[2]]]))
+      idlist[[n]] <- as.numeric(c(idlist[[selidv[1]]],idlist[[selidv[2]]]))
+      tsolcorm <- solve(orgcorm[idlist[[n]],idlist[[n]]])
+
+      wv <- orgeffs[idlist[[n]]]
+      coef <- wv/sqrt(sum(wv^2))
+      pcoef <- metaf(wv*dirclist[[n]],tsolcorm)
+      pmv <- (pcoef^2)/coef^2
+      newv <- orgresm[,n] <- as.matrix(orgresm[,idlist[[n]]])%*%pcoef
+      pnewv <- newv^2
+      weieffsccp[n] <- signif(mean(pnewv[which(pnewv>qchisq(1-cgwasenv$.CCP,1))])/normea,5)
+      e5 <- signif((sum((weieffsccp[idlist[[n]]]-1)*pmv)+1),5)
+      coeflist[[n]] <- coef <- signif(pcoef,5)
+      orgeffs[n] <- round(sum(pmv*wv))
+      weieffs[n] <- signif(mean(pnewv),5)
+
+      trec <- paste0("Round ",roundn)
+      roundn <- roundn+1
+      rec <- append(rec,trec)
+      print(trec)
+
+      trec <- paste0(selidv[1]," ",selidv[2]," ",orgeffs[selidv[1]],
+                     "(",weieffs[selidv[1]]," ",weieffsccp[selidv[1]],") ",
+                     orgeffs[selidv[2]],
+                     "(",weieffs[selidv[2]]," ",weieffsccp[selidv[2]],")")
+      rec <- append(rec,trec)
+      print(trec)
+
+      trec <- paste0("Pmeta ",weieffsccp[n]," ",e5,
+                     " (",weieffsccp[selidv[1]]," ",weieffsccp[selidv[2]],") ")
+      rec <- append(rec,trec)
+      print(trec)
+
+      trec <- paste0(paste(idlist[[selidv[1]]],collapse="-")," ",
+                     paste(idlist[[selidv[2]]],collapse="-")," -> ",
+                     n," ",orgeffs[n],"(",weieffs[n]," ",weieffsccp[n],") | ",
+                     paste0(coef,collapse=" ")," | ",bgc)
+      rec <- append(rec,trec)
+      print(trec)
+
+      trec <- paste0(" ")
+      rec <- append(rec,trec)
+      print(trec)
+
+      write.table(as.data.frame(signif(newv,6)),
+                         file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(n,".gmeta")),
+                         row.names=F,col.names=F,quote=F)
+
+      existid[n] <- 1
+      existid[selidv] <- 0
+
+      newcornum <- which(existid[-n]!=0)
+      if(length(newcornum)==0){
+        break
+      }
+
+      if(weieffs[n]<1.02){
+        newv <- newv*sqrt(1.02/weieffs[n])
+      }
+      newv2 <- newv^2
+      newv2m <- var(newv)
+
+      newcoridm <- foreach(i=newcornum,.combine="rbind",.inorder=F,.export=c('multiCorr')) %dopar%
+        multiCorr(i,n,newv,newv2,newv2m,orgeffs,weieffs,cgwasenv)
+      deleteid <- union(union(union(which(coridm[,1]==selidv[1]),which(coridm[,1]==selidv[2])),which(coridm[,2]==selidv[1])),which(coridm[,2]==selidv[2]))
+      coridm <- coridm[-deleteid,]
+      motjv <- motjv[-deleteid]
+
+      if(length(nrow(newcoridm))!=0){
+        motjv <- c(motjv,abs(newcoridm[,3]))
+      } else{
+        motjv <- c(motjv,abs(newcoridm[3]))
+      }
+      coridm <- rbind(coridm,newcoridm)
+      n <- n+1
     }
-    if(Fdd){
-      sig <- 2*as.numeric(nchar(bpm[,4])==(Bdd+2))-1
-      tm[,i] <- -qnorm(as.numeric(bpm[,5])/2)*sig
-    } else{
-      tm[,i] <- -qnorm(as.numeric(bpm[,5])/2)*abs(as.numeric(bpm[,4]))/as.numeric(bpm[,4])
+
+    for(i in which(existid==0)){
+      file.remove(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(i,".gmeta")))
     }
-    print(paste0(i," Trait Statistics Generated"))
-  }
 
-  snpInx = apply(tm, 1,function(x) sum(is.na(x)) == 0)
-  tm <- tm[snpInx, ]
-  snpm <- snpm[snpInx, ]
-
-  data.table::fwrite(snpm, file.path(cgwasenv$.cgwas_result, "SnpIndex"), quote = F, col.names = T, row.names = F)
-  print("SnpIndex Completed")
-
-  cgwasenv$.Rsnpnum <- nrow(snpm)
-  if (is.na(cgwasenv$.Gt)) cgwasenv$.Gt <- max(5e-8, 0.05/cgwasenv$.Rsnpnum)
-  if (is.na(cgwasenv$.St)) cgwasenv$.St <- max(1.6e-6, 1/cgwasenv$.Rsnpnum)
-  cgwasenv$.Esnpnum <- round(0.05/cgwasenv$.Gt)
-
-  if (is.na(Clv)){
-    Correctlambda <- T
-  } else {
-    Correctlambda <- F
-  }
-
-
-  if(Correctlambda){
-    Sind <- as.numeric(snpm[,2])
-    clv <- c()
-    cxv <- c()
-    gif <- c()
-  }
-  lv <- c()
-  xv <- c()
-  LDr <- 500000
-  preset <- 5000
-  print("")
-  for(i in 1:cgwasenv$.pheNum){
-    abst <- abs(tm[,i])
-    lv <- c(lv,quantile(abst,0.5)/qnorm(0.75))
-    xv <- c(xv,mean(abst^2))
-    print(paste0(cgwasenv$.traitName[i],"   lambda: ",round(lv[i],4),"   meanX2: ",round(xv[i],4)))
-    if(Correctlambda){
-      tarid <- which(abst>abs(qnorm(1e-4/2)))
-      tarid <- tarid[which(tarid>preset)]
-      tarid <- tarid[which(tarid<(cgwasenv$.Rsnpnum-preset))]
-      id <- c()
-      tid <- c()
-      bid <- 1
-      doub <- 1
-      if (length(tarid) >= 2){
-        for (j in 2:length(tarid)){
-          if (tarid[j]>tail(bid,1)){
-            if (doub==1){
-              tbid <- Sind[(tarid[j-1]-preset):(tarid[j-1]+preset)]
-              bid <- which((tbid<(Sind[tarid[j-1]]+LDr))&(tbid>(Sind[tarid[j-1]]-LDr)))+tarid[j-1]-preset-1
-              id <- unique(c(id,bid))
-              doub <- 0
-            }
-            tbid <- Sind[(tarid[j]-preset):(tarid[j]+preset)]
-            bid <- which((tbid<(Sind[tarid[j]]+LDr))&(tbid>(Sind[tarid[j]]-LDr)))+tarid[j]-preset-1
-            id <- unique(c(id,bid))
-            if(length(id)>LDr){
-              tid <- unique(c(tid,id))
-              id <- c()
-            }
-          } else{
-            doub <- 1
+    for(n in which(existid!=0)){
+      if(length(idlist[[n]])!=1){
+        if(weieffsccp[n]<1){
+          ep <- 1/weieffsccp[n]-1
+          ev <- 1+ep
+          pnewv <- ev*orgresm[,n]^2
+          weieffsccp[n] <- signif(mean(pnewv[which(pnewv>qchisq(1-cgwasenv$.CCP,1))])/normea,5)
+          while(weieffsccp[n]<1){
+            ev <- ev+ep
+            pnewv <- ev*orgresm[,n]^2
+            weieffsccp[n] <- signif(mean(pnewv[which(pnewv>qchisq(1-cgwasenv$.CCP,1))])/normea,5)
           }
+          weieffs[n] <- signif(mean(pnewv),5)
+          orgresm[,n] <- orgresm[,n]*sqrt(ev)
+          fwrite(as.data.frame(signif(orgresm[,n],6)),
+                             file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(n,".gmeta")),
+                             row.names=F,col.names=F,quote=F)
         }
       }
-      tid <- unique(c(tid,id))
-      gif <- c(gif,quantile(abst[setdiff(1:cgwasenv$.Rsnpnum,tid)],0.5)/qnorm(0.75))
-      print(paste0("Inflation factor: ",round(gif[i],4)))
-      if(gif[i]>=1){
-        tm[,i] <- tm[,i]/gif[i]
-        clv <- c(clv,quantile((abst/gif[i]),0.5)/qnorm(0.75))
-        cxv <- c(cxv,mean((abst/gif[i])^2))
-      } else{
-        gif[i] <- 1
-        clv <- c(clv,lv[i])
-        cxv <- c(cxv,xv[i])
-      }
-      print(paste0(cgwasenv$.traitName[i],"   corrected lambda: ",round(clv[i],4),"   meanX2: ",round(cxv[i],4)))
     }
-    print("")
-  }
-  if(Correctlambda){
-    data.table::fwrite(cbind(cgwasenv$.traitName,lv,xv,gif,clv,cxv),file.path(cgwasenv$.cgwas_result, "GwasDataCheck.txt"),row.names = F,col.names = F,quote = F)
-    data.table::fwrite(as.data.frame(rep(1,cgwasenv$.pheNum)), file.path(cgwasenv$.cgwas_simuldata, "lambda.txt"), row.names = F, col.names = F, quote = F)
-  } else{
-    data.table::fwrite(cbind(cgwasenv$.traitName,lv,xv),file.path(cgwasenv$.cgwas_result, "GwasDataCheck.txt"),row.names = F,col.names = F,quote = F)
-    data.table::fwrite(as.data.frame(Clv), file.path(cgwasenv$.cgwas_simuldata, "lambda.txt"), row.names = F, col.names = F, quote = F)
   }
 
-  data.table::fwrite(as.data.frame(tm),file.path(cgwasenv$.cgwas_rowdata, "All.s"),col.names=F,row.names=F,sep=" ")
-  print(paste0("All Data Block Saved"))
+  write.table(rec,
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "Record0.txt"),
+              row.names=F,col.names=F,quote=F)
 
-  print(paste0("Calculate Correlation Matrix.."))
-  orgtemp <- qnorm(ppoints(1:cgwasenv$.Rsnpnum))
-  for(i in 1:cgwasenv$.pheNum){
-    tm[order(tm[,i]),i] <- orgtemp
-    print(paste0(i," Z score Transformed"))
+  trait.name.new <- outid <- which(existid!=0)
+  for(i in 1:length(outid)){
+    trait.name.new[i] <- paste(cgwasenv$.TRAIT_NAME[idlist[[outid[i]]]],collapse="-")
   }
-  ctm <- cor(tm)
-  colnames(ctm) <- cgwasenv$.traitName
-  write.csv(ctm,file.path(cgwasenv$.cgwas_result, paste0(cgwasenv$.pheNum, "StatsCor.csv")),row.names=F,quote=F)
-  print(paste0("Correlation Matrix Completed"))
+  write.table(as.data.frame(cbind(1:length(outid),outid,trait.name.new,orgeffs[outid],weieffs[outid],weieffsccp[outid])),
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaPreCombination"),
+              row.names=F,col.names=F,quote=F)
 
-  print(paste0("Step1 Completed"))
+  cnv <- c()
+  for(i in 1:length(outid)){
+    if(outid[i]!=i){
+      file.rename(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(outid[i],".gmeta")),
+                  file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(i,".gmeta")))
+    }
+    coridm[coridm==outid[i]] <- i
+    cnv <- c(cnv,length(idlist[[outid[i]]]))
+  }
+
+  ccm <- matrix(NA,length(outid),7*max(cnv)+3)
+  for(i in 1:length(outid)){
+    ccm[i,1:cnv[i]] <- idlist[[outid[i]]]
+    ccm[i,(max(cnv)+1):(max(cnv)+cnv[i])] <- cgwasenv$.TRAIT_DATA_NAME[idlist[[outid[i]]]]
+    ccm[i,(2*max(cnv)+1):(2*max(cnv)+cnv[i])] <- dirclist[[outid[i]]]
+    ccm[i,(3*max(cnv)+1):(3*max(cnv)+cnv[i])] <- coeflist[[outid[i]]]
+    ccm[i,(4*max(cnv)+1):(4*max(cnv)+cnv[i])] <- orgeffs[idlist[[outid[i]]]]
+    ccm[i,(5*max(cnv)+1):(5*max(cnv)+cnv[i])] <- weieffs[idlist[[outid[i]]]]
+    ccm[i,(6*max(cnv)+1):(6*max(cnv)+cnv[i])] <- weieffsccp[idlist[[outid[i]]]]
+    ccm[i,(7*max(cnv)+1)] <- orgeffs[outid[i]]
+    ccm[i,(7*max(cnv)+2)] <- weieffs[outid[i]]
+    ccm[i,(7*max(cnv)+3)] <- weieffsccp[outid[i]]
+  }
+
+  write.table(as.data.frame(ccm),
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaCoefficient0"),
+              row.names=F,col.names=F,quote=F)
+
+  coridm <- coridm[order(coridm[,2]),]
+  coridm <- coridm[order(coridm[,1]),]
+
+  colnames(coridm)[1:2] <- c("Combination1","Combination2")
+  write.table(coridm,
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta0.corest"),
+              row.names=F,quote=F)
+
+  stopCluster(sb)
 }
 
-step2_parallel <- function(){
-    lambda <- as.numeric(read.table(file.path(cgwasenv$.cgwas_simuldata, "lambda.txt"), header = F)[,1])
-    ocorm <- as.matrix(read.csv(file.path(cgwasenv$.cgwas_result, paste0(cgwasenv$.pheNum, "StatsCor.csv")),header=T))
-    preCorrection()
-    qvLen <- length(cgwasenv$.qv)
-    fminm <- matrix(0,ncol=cgwasenv$.pheNum,nrow=cgwasenv$.simulNum*qvLen)
-    ocorm2 <- ocorm^2
-    ocorm3 <- ocorm^3
-    ocorm4 <- ocorm^4
+step5 <- function(cgwasenv) {
+  # GMA
 
-    step2Time1 <- Sys.time()
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
 
-    snowfall::sfSetMaxCPUs(parallel::detectCores() - 1)
-    if (cgwasenv$.paral == 1){
-      snowfall::sfInit(parallel = F)
-    } else {
-      snowfall::sfInit(parallel = T, cpus = cgwasenv$.paral)
+  precomb.tmp <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaPreCombination"),
+                            header=F,stringsAsFactors=F)
+  trait.es.new <- as.numeric(precomb.tmp[,4])
+  trait.num.new <- length(trait.es.new)
+  coridm <- as.matrix(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta0.corest"),
+                                 header=T,stringsAsFactors=F))
+
+  orgcorm <- diag(trait.num.new)
+  n <- 0
+  for(i in 2:nrow(orgcorm)){
+    orgcorm[i:nrow(orgcorm),i-1] <- orgcorm[i-1,i:nrow(orgcorm)] <- coridm[(n+1):(n+nrow(orgcorm)-i+1),3]
+    n <- n+nrow(orgcorm)-i+1
+  }
+
+  tpov <- coridm[,5]-coridm[,3]
+
+  nn <- 0
+  while(!all(eigen(orgcorm)$values>0)){
+    nn <- nn+1
+    coridm[,3] <- coridm[,3]+0.1*tpov
+    orgcorm <- diag(trait.num.new)
+    n <- 0
+    for(i in 2:nrow(orgcorm)){
+      orgcorm[i:nrow(orgcorm),i-1] <- orgcorm[i-1,i:nrow(orgcorm)] <- coridm[(n+1):(n+nrow(orgcorm)-i+1),3]
+      n <- n+nrow(orgcorm)-i+1
     }
-    snowfall::sfLibrary(MASS)
-    pheNum <- cgwasenv$.pheNum
-    snowfall::sfExport("ocorm", "ocorm2", "ocorm3", "ocorm4", "pheNum", "lambda")
-    snowfall::sfClusterSetupRNGstream(seed=2)
+  }
 
-    for(i in 1:cgwasenv$.simulNum){
-      smltTime1 <- Sys.time()
+  print(nn)
 
-      fillind <- (qvLen*(i-1)+1):(qvLen*i)
+  effcorm <- diag(trait.num.new)
+  n <- 0
+  for(i in 2:nrow(effcorm)){
+    effcorm[i:nrow(effcorm),i-1] <- effcorm[i-1,i:nrow(effcorm)] <- coridm[(n+1):(n+nrow(effcorm)-i+1),4]
+    n <- n+nrow(effcorm)-i+1
+  }
 
-      c3aTime1 <- Sys.time()
-      resm = matrix(unlist(snowfall::sfLapply(1:cgwasenv$.Esnpnum, mkdf_corterm3all_parallel)), byrow = T, ncol = cgwasenv$.pheNum)
-      c3aTime2 <- Sys.time()
-      print(paste0(i, "th c3a use time:"))
-      print(c3aTime2 - c3aTime1)
+  sigeffcorm <- cbind(orgcorm/abs(orgcorm),effcorm/abs(effcorm))
 
-      fminm[fillind,] <- apply(resm,2,function(a){return(sort(a))})[cgwasenv$.qv,]
+  orgresm <- foreach(i=1:trait.num.new,.combine="cbind",.inorder=T,.export='readtm.gmeta') %dopar%
+             readtm.gmeta(i, cgwasenv)
 
-      smltTime2 <- Sys.time()
-      print(paste0(i, "th simulation use time:"))
-      print(smltTime2 - smltTime1)
-    }
+  localsep <- 2e4
 
-    snowfall::sfStop()
-    step2Time2 <- Sys.time()
-    print(paste0("step2 use time:"))
-    print(step2Time2 - step2Time1)
+  gmetam <- foreach(i=iter(orgresm,by="row",chunksize=localsep),.combine="rbind",.inorder=T,.export='metaf.GMA') %dopar%
+            metaf.GMA(i, sigeffcorm, trait.es.new, orgcorm, trait.num.new, cgwasenv)
 
-    for(i in 1:cgwasenv$.pheNum){
-      data.table::fwrite(matrix(fminm[,i],ncol=qvLen,byrow = T),file.path(cgwasenv$.cgwas_allp,paste0("qm",cgwasenv$.simulNum,"_",i)),row.names=F,col.names=F,quote=F)
-    }
+  fwrite(as.data.frame(signif(gmetam[,1],4)),
+                     file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta.p"),
+                     sep=" ",row.names=F,col.names=F,quote=F)
+  gmetam <- gmetam[,-1]
+  fwrite(as.data.frame(gmetam),
+                     file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta.dirc"),
+                     sep=" ",na="NA",row.names=F,col.names=F,quote=F)
 
-    print(paste0("Step2 Completed"))
+  qfswm <- foreach(i=iter(orgresm,by="row",chunksize=localsep),.combine="rbind",.inorder=T,.export='qfsw') %dopar%
+            qfsw(i, orgcorm, trait.num.new, cgwasenv)
+
+  fwrite(as.data.frame(qfswm[,(trait.num.new+1):ncol(qfswm)]),
+                     file.path(cgwasenv$.CGWAS_GMA_PATH, "QFsw.ord"),
+                     sep=" ",na="NA",row.names=F,col.names=F,quote=F)
+  qfswm <- qfswm[,-((trait.num.new+1):ncol(qfswm))]
+  fwrite(as.data.frame(signif(qfswm,4)),
+                     file.path(cgwasenv$.CGWAS_GMA_PATH, "QFsw.ordp"),
+                     sep=" ",na="NA",row.names=F,col.names=F,quote=F)
+  minp <- foreach(i=iter(qfswm,by="row",chunksize=localsep),.combine="c",.inorder=T,.export='apminfun') %dopar%
+            apminfun(i)
+  fwrite(as.data.frame(signif(minp,4)),
+                     file.path(cgwasenv$.CGWAS_GMA_PATH, "QFsw.p"),
+                     row.names=F,col.names=F,quote=F)
+
+  stopCluster(sb)
 }
 
-step3_parallel <- function(SimuReg){
-  data.table::fwrite(as.data.frame((qbeta(0.05,1:cgwasenv$.Esnpnum,cgwasenv$.Esnpnum:1)/(((qbeta(0.05,1,cgwasenv$.Esnpnum)/cgwasenv$.Gt-1)*((cgwasenv$.Esnpnum-1):0)+cgwasenv$.Esnpnum-1)/(cgwasenv$.Esnpnum-1)))[cgwasenv$.qv]),file.path(cgwasenv$.cgwas_minp, cgwasenv$.pheNum+1),row.names=F,col.names=F,quote=F)
-  basecf <- as.numeric(read.table(file.path(cgwasenv$.cgwas_minp, cgwasenv$.pheNum+1),header=F,stringsAsFactors=F)[,1])
+step6 <- function(cgwasenv) {
+  # GMA+QFSW-2
 
-  for(i in 1:cgwasenv$.pheNum){
-    qm <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_allp,paste0("qm",cgwasenv$.simulNum,"_",i)),header=F))
-    curcf <- apply(qm,2,quantile,probs=0.05)
-    data.table::fwrite(as.data.frame(curcf),file.path(cgwasenv$.cgwas_minp, i),row.names=F,col.names=F,quote=F)
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
 
-    jpeg(file.path(cgwasenv$.cgwas_correction, paste0(i, ".jpg")), width=3600, height=1350, res=200)
-    par(mfrow=c(2,2))
-    simulQQplot(qm,"Original",cgwasenv$.simulNum,cgwasenv$.Esnpnum)
-    simulQQplot(t(t(qm)*basecf/curcf),"Corrected",cgwasenv$.simulNum,cgwasenv$.Esnpnum)
-    simultime(t(t(qm)*basecf/curcf),cgwasenv$.simulNum,cgwasenv$.Esnpnum,SimuReg,"Simulate FDR")
-    inflationplot(basecf/curcf,cgwasenv$.Esnpnum,"Inflation Coefficient")
-    dev.off()
+  normea <- integrate(ga,qchisq(cgwasenv$.CCP,1,lower.tail=F),qchisq(1,1),cgwasenv)$value
+
+  effs.tmp <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaPreCombination"),
+                     header=F,stringsAsFactors=F)
+  orgeffs <- as.numeric(effs.tmp[,4])
+  weieffs <- as.numeric(effs.tmp[,5])
+  weieffsccp <- as.numeric(effs.tmp[,6])
+
+  trait.num.new <- nrow(effs.tmp)
+
+  dropm <- foreach(i=1:trait.num.new,.inorder=F,.export='copyfun.gmeta.gmetad') %dopar% copyfun.gmeta.gmetad(i, cgwasenv)
+
+  coridm <- as.matrix(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta0.corest"),
+                                 header=T,stringsAsFactors=F))
+
+  orgcorm <- diag(trait.num.new)
+  n <- 0
+  for(i in 2:nrow(orgcorm)){
+    orgcorm[i:nrow(orgcorm),i-1] <- orgcorm[i-1,i:nrow(orgcorm)] <- coridm[(n+1):(n+nrow(orgcorm)-i+1),3]
+    n <- n+nrow(orgcorm)-i+1
   }
 
-  qm <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_allp,paste0("qm",cgwasenv$.simulNum,"_",1)),header=F))
-  basecf <- as.numeric(read.table(file.path(cgwasenv$.cgwas_minp, cgwasenv$.pheNum+1),header=F,stringsAsFactors=F)[,1])
-  curcf <- as.numeric(read.table(file.path(cgwasenv$.cgwas_minp, 1),header=F,stringsAsFactors=F)[,1])
-  aa <- t(t(qm)*basecf/curcf)
-  print("1 Quantile Data Extracted")
-  for(i in 2:cgwasenv$.pheNum){
-    qm <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_allp,paste0("qm",cgwasenv$.simulNum,"_",i)),header=F))
-    curcf <- as.numeric(read.table(file.path(cgwasenv$.cgwas_minp, i),header=F,stringsAsFactors=F)[,1])
-    bb <- t(t(qm)*basecf/curcf)
-    aa[bb<aa] <- bb[bb<aa]
-    print(paste0(i," Quantile Data Extracted"))
+  tpov <- coridm[,5]-coridm[,3]
+
+  nn <- 0
+  while(!all(eigen(orgcorm)$values>0)){
+    nn <- nn+1
+    coridm[,3] <- coridm[,3]+0.1*tpov
+    orgcorm <- diag(trait.num.new)
+    n <- 0
+    for(i in 2:nrow(orgcorm)){
+      orgcorm[i:nrow(orgcorm),i-1] <- orgcorm[i-1,i:nrow(orgcorm)] <- coridm[(n+1):(n+nrow(orgcorm)-i+1),3]
+      n <- n+nrow(orgcorm)-i+1
+    }
   }
 
-  qm <- aa
-  curcf <- apply(qm,2,quantile,probs=0.05)
-  data.table::fwrite(as.data.frame(curcf),file.path(cgwasenv$.cgwas_minp, cgwasenv$.pheNum+2),row.names=F,col.names=F,quote=F)
-  jpeg(file.path(cgwasenv$.cgwas_correction, paste0(cgwasenv$.pheNum+1, ".jpg")), width=2400, height=2600, res=200)
-  par(mfrow=c(2,2))
-  simulQQplot(qm,"Original",cgwasenv$.simulNum,cgwasenv$.Esnpnum)
-  simulQQplot(t(t(qm)*basecf/curcf),"Corrected",cgwasenv$.simulNum,cgwasenv$.Esnpnum)
-  simultime(t(t(qm)*basecf/curcf),cgwasenv$.simulNum,cgwasenv$.Esnpnum,SimuReg,"Simulate FDR")
-  inflationplot(basecf/curcf,cgwasenv$.Esnpnum,"Inflation Coefficient")
-  dev.off()
+  print(nn)
 
-  print(paste0("Step3 Completed"))
-}
+  motjv <- abs(coridm[,3]-coridm[,4])
 
-step4_parallel <- function(){
-  step4Time1 <- Sys.time()
-  ocorm <- as.matrix(read.csv(file.path(cgwasenv$.cgwas_result, paste0(cgwasenv$.pheNum, "StatsCor.csv")),header=T))
-  dm <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_rowdata, "All.s"),header=F))
-  pm <- pnorm(-abs(dm))*2
-  ordm <- matrix(0,ncol=cgwasenv$.pheNum,cgwasenv$.Rsnpnum)
-  ocorm2 <- ocorm^2
-  ocorm3 <- ocorm^3
-  ocorm4 <- ocorm^4
+  n <- trait.num.new+1
+  roundn <- 1
+  existid <- rep(1,trait.num.new)
+  rec <- c()
+  snpn <- length(as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(1,".gmetad")),
+                                 header=F))[,1])
+  dm <- matrix(NA,snpn,2)
 
-  snowfall::sfSetMaxCPUs(parallel::detectCores() - 1)
-  if (cgwasenv$.paral == 1){
-    snowfall::sfInit(parallel = F)
-  } else {
-    snowfall::sfInit(parallel = T, cpus = cgwasenv$.paral)
-  }
-  pheNum <- cgwasenv$.pheNum
-  rowdataPath <- cgwasenv$.cgwas_rowdata
-  snowfall::sfExport("ocorm", "ocorm2", "ocorm3", "ocorm4", "pheNum", "rowdataPath")
-  paralInx <- rep(1:cgwasenv$.paral, each = ceiling(cgwasenv$.Rsnpnum / cgwasenv$.paral))[1:cgwasenv$.Rsnpnum]
-  for (i in 1: cgwasenv$.paral){
-    data.table::fwrite(as.data.frame(dm[paralInx == i,]), file.path(cgwasenv$.cgwas_rowdata, paste0("All.s.", i)),row.names=F,col.names=F,quote=F)
-    data.table::fwrite(as.data.frame(pm[paralInx == i,]), file.path(cgwasenv$.cgwas_rowdata, paste0("All.sp.", i)),row.names=F,col.names=F,quote=F)
+  combstrlist <- list()
+  for(i in 1:trait.num.new){
+    combstrlist[[i]] <- matrix(c(i,1,1,1,orgeffs[i],weieffs[i],weieffsccp[i]),1)
   }
 
-  resm <- matrix(unlist(snowfall::sfLapply(1:cgwasenv$.paral, corterm3all_parallel)), byrow = T, ncol = cgwasenv$.pheNum)
-  data.table::fwrite(as.data.frame(signif(resm,8)), file.path(cgwasenv$.cgwas_result, "All.res"),row.names=F,col.names=F,quote=F)
-  rm(resm)
-  gc()
+  localsep <- 2e4
 
-  snowfall::sfStop()
+  while(!all(motjv^2<0.04)){
+    mtarid <- order(motjv,decreasing=T)[1]
+    selidv <- coridm[mtarid,1:2]
+    bgc <- coridm[mtarid,3]
+    gc <- coridm[mtarid,4]
+    tsolcorm <- solve(matrix(c(1,bgc,bgc,1),2))
 
-  stepw <- matrix(unlist(lapply(1:cgwasenv$.Rsnpnum, function(i) order(pm[i, ]))), byrow = T, ncol = cgwasenv$.pheNum)
-  data.table::fwrite(as.data.frame(stepw), file.path(cgwasenv$.cgwas_result, "All.labspInx"),row.names=F,col.names=F,quote=F)
-  rm(stepw)
-  gc()
-  ordm <- matrix(unlist(lapply(1:cgwasenv$.Rsnpnum, function(i) sort(pm[i, ]))), byrow = T, ncol = cgwasenv$.pheNum)
-  data.table::fwrite(as.data.frame(signif(ordm,8)), file.path(cgwasenv$.cgwas_result, "All.sortsp"),row.names=F,col.names=F,quote=F)
-  rm(ordm)
-  data.table::fwrite(as.data.frame(signif(pm,4)), file.path(cgwasenv$.cgwas_result, "All.sp"),row.names=F,col.names=F,quote=F)
-  rm(pm)
-  gc()
+    dm[,1] <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(selidv[1],".gmetad"))
+                              ,header=F))[,1]
+    dm[,2] <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(selidv[2],".gmetad"))
+                              ,header=F))[,1]
+    dm2 <- dm^2
+    e1 <- mean(dm2[which(dm2[,1]>qchisq(1-cgwasenv$.CCP,1)),1])/normea
+    e2 <- mean(dm2[which(dm2[,2]>qchisq(1-cgwasenv$.CCP,1)),2])/normea
+    if(e2>e1){
+      selidv <- selidv[2:1]
+      dm[,1:2] <- dm[,2:1]
+      et <- e1
+      e1 <- e2
+      e2 <- et
+    }
 
-  step4Time2 <- Sys.time()
-  print(paste0("step4 use time:"))
-  print(step4Time2 - step4Time1)
-  print(paste0("Step4 Completed"))
-}
+    wv <- orgeffs[selidv]
+    pcoef <- metaf(wv*c(1,bgc/abs(bgc)),tsolcorm)
+    ncoef <- metaf(wv*c(1,-bgc/abs(bgc)),tsolcorm)
+    pnewv <- (dm%*%pcoef)^2
+    e3 <- mean(pnewv[which(pnewv>qchisq(1-cgwasenv$.CCP,1))])/normea
+    nnewv <- (dm%*%ncoef)^2
+    e4 <- mean(nnewv[which(nnewv>qchisq(1-cgwasenv$.CCP,1))])/normea
 
-step5 <- function(Ht){
-  step5Time1 <- Sys.time()
-  pm <- data.frame(data.table::fread(file.path(cgwasenv$.cgwas_result, "All.res"),header=F))
-  print("CGWAS Data Extracted")
+    coef <- wv/sqrt(sum(wv^2))
+    pmv <- (pcoef^2)/coef^2
+    nmv <- (ncoef^2)/coef^2
+    e5 <- (sum(c(e1-1,e2-1)*pmv)*cgwasenv$.HETEROPROP+1)
+    e6 <- (sum(c(e1-1,e2-1)*nmv)*cgwasenv$.HETEROPROP+1)
 
-  insertm1 <- insertm2 <- matrix(0,nrow=cgwasenv$.Rsnpnum,2)
-  simuper <- (cgwasenv$.qv-1)*(cgwasenv$.Rsnpnum-1)/(round(0.05/cgwasenv$.Gt)-1)+1
-  simuperf <- floor(simuper)
-  simuperc <- ceiling(simuper)
-  simuperc[which(simuper==simuperc)] <- simuperc[which(simuper==simuperc)]+1
-  simuperc[1] <- 1
-  repv <- simuperf[-1]-simuperc[-length(simuperc)]+1
-  for(i in 1:(length(simuperc)-1)){
-    insertm1[simuperc[i]:(simuperc[i+1]-1),2] <- (1:repv[i])-1
-  }
-  temre <- simuper[-1]-simuper[-length(simuper)]
-  insertm1[,2] <- (insertm1[,2]+rep((simuperc-simuper)[-length(simuperc)],repv))/rep(temre,repv)
-  insertm1[,1] <- 1-insertm1[,2]
-
-  basecf <- as.numeric(read.table(file.path(cgwasenv$.cgwas_minp, cgwasenv$.pheNum+1),header=F,stringsAsFactors=F)[,1])
-  tind <- scalev <- rep(0,cgwasenv$.Rsnpnum)
-  for(i in c(1:cgwasenv$.pheNum,cgwasenv$.pheNum+2)){
-    curcf <- as.numeric(read.table(file.path(cgwasenv$.cgwas_minp, i),header=F,stringsAsFactors=F)[,1])
-    baseper <- basecf/curcf
-    insertm2[,1] <- rep(baseper[-length(baseper)],repv)
-    insertm2[,2] <- rep(baseper[-1],repv)
-    insertm2 <- insertm1*insertm2
-    scalev <- insertm2[,1]+insertm2[,2]
-    if(i==(cgwasenv$.pheNum+2)){
-      cgsv <- scalev
+    if(roundn!=1){
+      trec <- paste0(" ")
+      rec <- append(rec,trec)
+      print(trec)
+    }
+    trec <- paste0("Round ",roundn)
+    rec <- append(rec,trec)
+    print(trec)
+    roundn <- roundn+1
+    trec <- paste0(selidv[1]," ",selidv[2]," ",orgeffs[selidv[1]],"(",weieffs[selidv[1]]," ",signif(e1,5),") ",orgeffs[selidv[2]],"(",weieffs[selidv[2]]," ",signif(e2,5),")")
+    rec <- append(rec,trec)
+    print(trec)
+    if((e5<e3)&(e1<e3)&(e2<e3)&(e6<e4)&(e2<e4)&(e1<e4)){
+      motjv[mtarid] <- 0
+      trec <- paste0("Pmeta ",signif(e3,5),">",signif(e5,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),") Nmeta ",signif(e4,5),">",signif(e6,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),")")
+      rec <- append(rec,trec)
+      print(trec)
+      trec <- paste0("Decision: 1 Nonmeta | ",bgc," ",gc)
+      rec <- append(rec,trec)
+      print(trec)
+      next
+    } else if((e5<e3)&(e1<e3)&(e2<e3)){
+      orgeffs[n] <- round(sum(pmv*wv))
+      weieffs[n] <- signif(mean(pnewv),5)
+      te <- signif(e3,5)
+      newv <- dm%*%pcoef
+      coef <- signif(pcoef,5)
+      trec <- paste0("Pmeta ",signif(e3,5),">",signif(e5,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),") Nmeta ",signif(e4,5),"<",signif(e6,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),")")
+      rec <- append(rec,trec)
+      print(trec)
+      trec <- paste0("Decision: 2 Pmeta ",selidv[1]," ",selidv[2]," -> ",n," ",orgeffs[n],"(",weieffs[n]," ",signif(e3,5),") | ",coef[1]," ",coef[2]," | ",bgc," ",gc)
+      rec <- append(rec,trec)
+      print(trec)
+    } else if((e6<e4)&(e2<e4)&(e1<e4)){
+      orgeffs[n] <- round(sum(nmv*wv))
+      weieffs[n] <- signif(mean(nnewv),5)
+      te <- signif(e4,5)
+      newv <- dm%*%ncoef
+      coef <- signif(ncoef,5)
+      trec <- paste0("Pmeta ",signif(e3,5),"<",signif(e5,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),") Nmeta ",signif(e4,5),">",signif(e6,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),")")
+      rec <- append(rec,trec)
+      print(trec)
+      trec <- paste0("Decision: 3 Nmeta ",selidv[1]," ",selidv[2]," -> ",n," ",orgeffs[n],"(",weieffs[n]," ",signif(e4,5),") | ",coef[1]," ",coef[2]," | ",bgc," ",gc)
+      rec <- append(rec,trec)
+      print(trec)
     } else{
-      tind <- order(pm[,i])
-      pm[tind,i] <- pm[tind,i]*scalev
-      print(paste0(i," CGWAS Data Corrected"))
+      motjv[mtarid] <- 0
+      trec <- paste0("Pmeta ",signif(e3,5),"<",signif(e5,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),") Nmeta ",signif(e4,5),"<",signif(e6,5),"[",signif(cgwasenv$.HETEROPROP,5),"x] (",signif(e1,5)," ",signif(e2,5),")")
+      rec <- append(rec,trec)
+      print(trec)
+      trec <- paste0("Decision: 4 Nonmeta | ",bgc," ",gc)
+      rec <- append(rec,trec)
+      print(trec)
+      next
     }
-    if(i==1){
-      sgsv <- scalev
+
+    fwrite(as.data.frame(signif(newv,6)),
+                       file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(n,".gmetad"))
+                       ,row.names=F,col.names=F,quote=F)
+    file.remove(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(selidv[1],".gmetad")))
+    file.remove(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(selidv[2],".gmetad")))
+
+    existid[n] <- 1
+    existid[selidv] <- 0
+
+    tempc1 <- combstrlist[[selidv[1]]]
+    tempc2 <- combstrlist[[selidv[2]]]
+    tempc1[,2] <- tempc1[,2]*coef[1]
+    tempc2[,2] <- tempc2[,2]*coef[2]
+    combstrlist[[n]] <- rbind(rbind(tempc1,tempc2),matrix(c(n,NA,1,1,orgeffs[n],weieffs[n],te),1))
+
+    newcornum <- which(existid[-n]!=0)
+    if(length(newcornum)==0){
+      break
     }
+
+    if(weieffs[n]<1.02){
+      newv <- newv*sqrt(1.02/weieffs[n])
+    }
+    newv2 <- newv^2
+    newv2m <- var(newv)
+
+    newcoridm <- foreach(i=newcornum,.combine="rbind",.inorder=F,.export='multiCorr.gmetad') %dopar%
+                 multiCorr.gmetad(i,n,newv,newv2,newv2m,orgeffs,weieffs,cgwasenv)
+    deleteid <- union(union(union(which(coridm[,1]==selidv[1]),which(coridm[,1]==selidv[2])),which(coridm[,2]==selidv[1])),which(coridm[,2]==selidv[2]))
+    coridm <- coridm[-deleteid,]
+    motjv <- motjv[-deleteid]
+
+    if(length(nrow(newcoridm))!=0){
+      motjv <- c(motjv,abs(newcoridm[,3]-newcoridm[,4]))
+    } else{
+      motjv <- c(motjv,abs(newcoridm[3]-newcoridm[4]))
+    }
+    coridm <- rbind(coridm,newcoridm)
+    n <- n+1
+  }
+  write.table(rec,
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "Record2.txt"),
+              row.names=F,col.names=F,quote=F)
+
+  outid <- which(existid!=0)
+  write.table(as.data.frame(cbind(1:length(outid),outid)),
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaCombination"),
+              row.names=F,col.names=F,quote=F)
+
+  cnv <- c()
+  combinfo <- c()
+  for(i in 1:length(outid)){
+    if(outid[i]!=i){
+      file.rename(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(outid[i],".gmetad")),
+                  file.path(cgwasenv$.CGWAS_GMA_PATH, paste0(i,".gmetad")))
+    }
+    coridm[coridm==outid[i]] <- i
+    combstrlist[[outid[i]]][,2] <- signif(combstrlist[[outid[i]]][,2],5)
+    combinfo <- rbind(combinfo,c(combstrlist[[outid[i]]][nrow(combstrlist[[outid[i]]]),5:7]))
+    combstrlist[[outid[i]]] <- na.omit(combstrlist[[outid[i]]])
+    cnv <- c(cnv,nrow(combstrlist[[outid[i]]]))
   }
 
-  pm[pm>1] <- 1
-  mincp <- apply(pm,1,min)
-  data.table::fwrite(as.data.frame(signif(mincp,4)),file.path(cgwasenv$.cgwas_result, "Min.cp"),row.names=F,col.names=F,quote=F)
-  print(paste0("Derived CGWAS Minp"))
-  tind <- order(mincp)
-  mincp[tind] <- mincp[tind]*cgsv
-  mincp[mincp>1] <- 1
-  data.table::fwrite(as.data.frame(signif(mincp,4)),file.path(cgwasenv$.cgwas_result, "Min.corrcp"),row.names=F,col.names=F,quote=F)
-  print(paste0("Derived CGWAS corrMinp"))
-
-  pm <- signif(pm,4)
-
-  sugghitind2 <- which(mincp<cgwasenv$.St)
-  HJind2 <- which(mincp<Ht)
-
-  spo <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_result, "All.sortsp"),header=F))
-  file.remove(file.path(cgwasenv$.cgwas_result, "All.sortsp"))
-
-  minsp <- spo[,1]
-  tind <- order(minsp)
-  minsp[tind] <- minsp[tind]*sgsv
-  minsp[minsp>1] <- 1
-  data.table::fwrite(as.data.frame(signif(minsp,4)),file.path(cgwasenv$.cgwas_result, "Min.corrsp"),row.names=F,col.names=F,quote=F)
-  print(paste0("Derived corrGWAS Minp"))
-
-  spo <- signif(spo,4)
-  data.table::fwrite(as.data.frame(spo),file.path(cgwasenv$.cgwas_result, "All.sortsp"),row.names=F,col.names=F,quote=F,sep=" ")
-  print(paste0("sortGWAS Result Saved"))
-  data.table::fwrite(as.data.frame(spo[,1]),file.path(cgwasenv$.cgwas_result, "Min.sp"),row.names=F,col.names=F,quote=F)
-  print(paste0("Derived GWAS Minp"))
-
-  sugghitind <- which(as.numeric(minsp)<cgwasenv$.St)
-  HJind <- which(minsp<Ht)
-
-  sugghit3 <- union(sugghitind,sugghitind2)
-  HJ3 <- union(HJind,HJind2)
-  sugghit <- matrix(0,length(sugghit3)*cgwasenv$.pheNum,3)
-  HJM <- matrix(0,length(HJ3),2)
-  sugghit[,1] <- rep(sugghit3,each=cgwasenv$.pheNum)
-  sugghit[,2] <- as.vector(t(pm[sugghit3,]))
-  sugghit[,3] <- rep(c(1:cgwasenv$.pheNum),length(sugghit3))
-  HJM[,1] <- as.numeric(mincp)[HJ3]
-  HJM[,2] <- as.numeric(minsp)[HJ3]
-  HJpm <- pm[HJ3,]
-  data.table::fwrite(as.data.frame(pm),file.path(cgwasenv$.cgwas_result, "All.cp"),row.names=F,col.names=F,quote=F,sep=" ")
-  print(paste0("CGWAS Result Saved"))
-  rm(pm)
-  gc()
-
-  Sind <- as.data.frame(data.table::fread(file.path(cgwasenv$.cgwas_result, "SnpIndex"),header=T))
-  temres <- cbind(Sind[as.numeric(sugghit[,1]),],sugghit)
-  temHJ <- cbind(Sind[HJ3,],HJM)
-  temres <- temres[order(temres[,5]),]
-  temres <- temres[order(temres[,2]),]
-  temres <- temres[order(temres[,1]),]
-  temHJ <- temHJ[order(temHJ[,2]),]
-  temHJ <- temHJ[order(temHJ[,1]),]
-  colnames(temres)[4:6] <- c("SNPid","CorrCP","CombNum")
-  colnames(temHJ)[4:5] <- c("CP","BP")
-  write.csv(temres,file.path(cgwasenv$.cgwas_result, "CgwasRawSuggHits.csv"),row.names=F,quote=F)
-  data.table::fwrite(as.data.frame(temHJ),file.path(cgwasenv$.cgwas_result, "HJ_man.txt"),row.names=F,col.names=F,quote=F)
-  print(paste0("CGWAS Suggestive Hits Saved"))
-
-  sspo <- spo[sugghit3,]
-  HJspo <- spo[HJ3,]
-  rm(spo)
-  gc()
-  spsignum <- c()
-  cpsignum <- c()
-  for(i in 1:nrow(HJspo)){
-    spsignum <- c(spsignum,sum(HJspo[i,]<=cgwasenv$.St))
-    cpsignum <- c(cpsignum,which(HJpm[i,]==min(HJpm[i,]))[1])
+  ccm <- matrix(NA,length(outid),5*max(cnv))
+  for(i in 1:length(outid)){
+    ccm[i,1:cnv[i]] <- combstrlist[[outid[i]]][,1]
+    ccm[i,(max(cnv)+1):(max(cnv)+cnv[i])] <- combstrlist[[outid[i]]][,2]
+    ccm[i,(2*max(cnv)+1):(2*max(cnv)+cnv[i])] <- combstrlist[[outid[i]]][,5]
+    ccm[i,(3*max(cnv)+1):(3*max(cnv)+cnv[i])] <- combstrlist[[outid[i]]][,6]
+    ccm[i,(4*max(cnv)+1):(4*max(cnv)+cnv[i])] <- combstrlist[[outid[i]]][,7]
   }
-  spl <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_result, "All.labspInx"),header=F))
-  sspl <- matrix(unlist(lapply(sugghit3,function(i) {cgwasenv$.traitName[spl[i,]]})), byrow = T, ncol = ncol(spl))
-  HJspl <- matrix(unlist(lapply(HJ3,function(i) {cgwasenv$.traitName[spl[i,]]})), byrow = T, ncol = ncol(spl))
-  rm(spl)
-  gc()
-  sugghit <- matrix(0,length(sugghit3)*cgwasenv$.pheNum,3)
-  sugghit[,1] <- rep(sugghit3,each=cgwasenv$.pheNum)
-  sugghit[,2] <- as.vector(t(sspo[,]))
-  sugghit[,3] <- as.vector(t(sspl[,]))
+  ccm <- cbind(ccm,combinfo)
 
-  temres <- cbind(Sind[as.numeric(sugghit[,1]),],sugghit)
-  temHJall <- cbind(Sind[HJ3,],cpsignum,spsignum,HJpm,HJspl,HJspo)
-  temres <- temres[order(temres[,2]),]
-  temres <- temres[order(temres[,1]),]
-  temHJall <- temHJall[order(temHJall[,2]),]
-  temHJall <- temHJall[order(temHJall[,1]),]
-  temHJall <- temHJall[,-c(1:2)]
-  colnames(temres)[4:6] <- c("SNPid","SP","Trait")
-  write.csv(as.matrix(temres),file.path(cgwasenv$.cgwas_result, "GwasRawSuggHits.csv"),row.names=F,quote=F)
-  data.table::fwrite(as.data.frame(temHJall),file.path(cgwasenv$.cgwas_result, "HJ_bar.txt"),row.names=F,col.names=F,quote=F)
-  print(paste0("GWAS Suggestive Hits Saved"))
+  write.table(as.data.frame(ccm),
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaCoefficient2"),
+              row.names=F,col.names=F,quote=F)
 
-  print(object.size(sspl), units = 'auto')
-  print(object.size(HJspl), units = 'auto')
-  print(object.size(sugghit), units = 'auto')
-  print(object.size(Sind), units = 'auto')
-  print(object.size(temres), units = 'auto')
-  print(object.size(temHJall), units = 'auto')
+  coridm <- coridm[order(coridm[,2]),]
+  coridm <- coridm[order(coridm[,1]),]
 
-  step5Time2 <- Sys.time()
-  print(paste0("step5 use time:"))
-  print(step5Time2 - step5Time1)
-  print(paste0("Step5 Completed"))
+  colnames(coridm)[1:2] <- c("Combination1","Combination2")
+  write.table(coridm,
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta2.corest"),
+              row.names=F,quote=F)
+
+  stopCluster(sb)
 }
 
-step6 <- function(m_wid=3500,m_hei=3500,sing_col=c('chartreuse2','chartreuse4'),comb_col=c('darkgoldenrod2','darkgoldenrod4'),speeduppoints=T,q_wid=3500,q_hei=2400){
-  step6Time1 <- Sys.time()
-  print(paste0("Read Data.."))
-  Sind <- as.data.frame(data.table::fread(file.path(cgwasenv$.cgwas_result, "SnpIndex"),header=T))
-  singpm <- as.data.frame(data.table::fread(file.path(cgwasenv$.cgwas_result, "Min.corrsp"),header=F))
-  cpm <- as.data.frame(data.table::fread(file.path(cgwasenv$.cgwas_result, "Min.corrcp"),header=F))
-  cpfm <- cbind(Sind,-log10(singpm),-log10(cpm))
+step7 <- function(cgwasenv) {
+  # QFSW
 
-  if(speeduppoints){
-    cpfm <- cpfm[-which((cpfm[,4]<1)&(cpfm[,5]<1)),]
-    tem <- which((cpfm[,4]<2)&(cpfm[,5]<2))
-    cpfm <- cpfm[-sample(tem,round(length(tem)*0.75)),]
-    tem <- which((cpfm[,4]<3)&(cpfm[,5]<3))
-    cpfm <- cpfm[-sample(tem,round(length(tem)*0.5)),]
-    tem <- which((cpfm[,4]<4)&(cpfm[,5]<4))
-    cpfm <- cpfm[-sample(tem,round(length(tem)*0.25)),]
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  combnum <- nrow(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaCombination"),
+                             header=F,stringsAsFactors=F))
+
+  coridm <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0("Gmeta2.corest")),
+                       header=T,stringsAsFactors=F)
+  gmetacorm <- diag(combnum)
+  n <- 0
+  for(i in 2:nrow(gmetacorm)){
+    gmetacorm[i:nrow(gmetacorm),i-1] <- gmetacorm[i-1,i:nrow(gmetacorm)] <- coridm[(n+1):(n+nrow(gmetacorm)-i+1),3]
+    n <- n+nrow(gmetacorm)-i+1
   }
-  cpfm[which(cpfm[,4]<1),4] <- 0
-  cpfm[which(cpfm[,5]<1),5] <- 0
 
-  print(paste0("Produce Manhattan Plots.."))
-  jpeg(file.path(cgwasenv$.cgwas_result, "man.jpg"),width=m_wid,height=m_hei,res=300)
+  tpov <- coridm[,5]-coridm[,3]
+
+  nn <- 0
+  while(!all(eigen(gmetacorm)$values>0)){
+    nn <- nn+1
+    coridm[,3] <- coridm[,3]+0.1*tpov
+    gmetacorm <- diag(cgwasenv$.TRAIT_NUM)
+    n <- 0
+    for(i in 2:nrow(gmetacorm)){
+      gmetacorm[i:nrow(gmetacorm),i-1] <- gmetacorm[i-1,i:nrow(gmetacorm)] <- coridm[(n+1):(n+nrow(gmetacorm)-i+1),3]
+      n <- n+nrow(gmetacorm)-i+1
+    }
+  }
+
+  print(nn)
+
+  orgresm <- foreach(i=1:combnum,.combine="cbind",.inorder=T,.export='readtm.gmetad') %dopar% readtm.gmetad(i,cgwasenv)
+
+  localsep <- 2e4
+
+  qfswm <- foreach(i=iter(orgresm,by="row",chunksize=localsep),.combine="rbind",.inorder=T,.export='qfsw') %dopar%
+           qfsw(i, gmetacorm, combnum, cgwasenv)
+
+  fwrite(as.data.frame(qfswm[,(combnum+1):ncol(qfswm)]),
+         file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaQFsw.ord"),
+         sep=" ",na="NA",row.names=F,col.names=F,quote=F)
+  qfswm <- qfswm[,-((combnum+1):ncol(qfswm))]
+  fwrite(as.data.frame(signif(qfswm,4)),
+         file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaQFsw.ordp"),
+         sep=" ",na="NA",row.names=F,col.names=F,quote=F)
+  minp <- foreach(i=iter(qfswm,by="row",chunksize=localsep),.combine="c",.inorder=T,.export='apminfun') %dopar% apminfun(i)
+  fwrite(as.data.frame(signif(minp,4)),
+         file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaQFsw.p"),
+         row.names=F,col.names=F,quote=F)
+
+  stopCluster(sb)
+}
+
+step8 <- function(cgwasenv) {
+  # Simulation
+
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  trait.es.new <- as.numeric(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaPreCombination"),
+                                        header=F,stringsAsFactors=F)[,4])
+  trait.num.new <- length(trait.es.new)
+  coridm <- as.matrix(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta0.corest"),
+                                 header=T,stringsAsFactors=F))
+
+  orgcorm <- diag(trait.num.new)
+  n <- 0
+  for(i in 2:nrow(orgcorm)){
+    orgcorm[i:nrow(orgcorm),i-1] <- orgcorm[i-1,i:nrow(orgcorm)] <- coridm[(n+1):(n+nrow(orgcorm)-i+1),3]
+    n <- n+nrow(orgcorm)-i+1
+  }
+
+  tpov <- coridm[,5]-coridm[,3]
+
+  nn <- 0
+  while(!all(eigen(orgcorm)$values>0)){
+    nn <- nn+1
+    coridm[,3] <- coridm[,3]+0.1*tpov
+    orgcorm <- diag(trait.num.new)
+    n <- 0
+    for(i in 2:nrow(orgcorm)){
+      orgcorm[i:nrow(orgcorm),i-1] <- orgcorm[i-1,i:nrow(orgcorm)] <- coridm[(n+1):(n+nrow(orgcorm)-i+1),3]
+      n <- n+nrow(orgcorm)-i+1
+    }
+  }
+
+  print(nn)
+
+  effcorm <- diag(trait.num.new)
+  n <- 0
+  for(i in 2:nrow(effcorm)){
+    effcorm[i:nrow(effcorm),i-1] <- effcorm[i-1,i:nrow(effcorm)] <- coridm[(n+1):(n+nrow(effcorm)-i+1),4]
+    n <- n+nrow(effcorm)-i+1
+  }
+
+  sigeffcorm <- cbind(orgcorm/abs(orgcorm),effcorm/abs(effcorm))
+
+  coridm <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, paste0("Gmeta2.corest")),
+                       header=T,stringsAsFactors=F)
+  combnum <- nrow(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaCombination"),
+                             header=F,stringsAsFactors=F))
+  gmqfc <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaCoefficient2"),
+                      header=F,stringsAsFactors=F)
+  gmqfcnum <- (ncol(gmqfc)-3)/5
+
+  swit <- FALSE
+  if(combnum!=trait.num.new){
+    swit <- TRUE
+    corm2 <- diag(combnum)
+
+    n <- 0
+    for(i in 2:nrow(corm2)){
+      corm2[i:nrow(corm2),i-1] <- corm2[i-1,i:nrow(corm2)] <- coridm[(n+1):(n+nrow(corm2)-i+1),3]
+      n <- n+nrow(corm2)-i+1
+    }
+
+    tpov <- coridm[,5]-coridm[,3]
+
+    nn <- 0
+    while(!all(eigen(corm2)$values>0)){
+      nn <- nn+1
+      coridm[,3] <- coridm[,3]+0.1*tpov
+      corm2 <- diag(combnum)
+      n <- 0
+      for(i in 2:nrow(corm2)){
+        corm2[i:nrow(corm2),i-1] <- corm2[i-1,i:nrow(corm2)] <- coridm[(n+1):(n+nrow(corm2)-i+1),3]
+        n <- n+nrow(corm2)-i+1
+      }
+    }
+
+    print(nn)
+  }
+
+  snpn <- 1e4
+  simuloop <- 1e4
+  thv <- sqrt(qchisq(1-cgwasenv$.CCP,1))
+
+  system.time({
+    simup <- foreach(i=1:simuloop,.combine="rbind",.inorder=F,.export='Simudata') %dopar%
+             Simudata(i, swit, orgcorm, snpn, sigeffcorm, corm2, thv, trait.es.new, trait.num.new, combnum, gmqfc, gmqfcnum)
+  })
+
+  sdsd <- sd(-log10(qbeta(ppoints(simuloop),1,snpn)))
+
+  mt <- qbeta(0.5,1,snpn)/apply(simup,2,quantile,probs=0.5)
+
+  lgcrm <- -log10(t(simup)*mt)
+  sdprop <- apply(lgcrm,1,sd)/sdsd
+
+  crsimup <- t(10^(-((lgcrm-apply(lgcrm,1,mean))/sdprop+apply(lgcrm,1,mean)+(-log10(qbeta(0.5,1,snpn))-apply(lgcrm,1,mean))*(sdprop-1)/(sdprop))))
+
+  mmt <- min(ncol(crsimup),qbeta(0.5,1,snpn)/quantile(apply(crsimup,1,min),probs=0.5))
+
+  write.table(as.data.frame(mt),
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "MTT"),
+              row.names=F,col.names=F,quote=F)
+  write.table(as.data.frame(mmt),
+              file.path(cgwasenv$.CGWAS_GMA_PATH, "MMT"),
+              row.names=F,col.names=F,quote=F)
+
+  stopCluster(sb)
+
+}
+
+step9 <- function(cgwasenv) {
+  # Visualization
+
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  Sind <- as.data.frame(fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "SnpIndex"),
+                                          header=T))
+
+  threspm <- as.numeric(unlist(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "MTT"),
+                                          header=F,stringsAsFactors=F)))
+  swit <- FALSE
+  bonfv <- as.numeric(unlist(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH, "MMT"),
+                                        header=F,stringsAsFactors=F)))
+  if(length(threspm)==2){
+    threspm[3] <- threspm[2]
+    swit <- TRUE
+  }
+
+  gmetap <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH, "Gmeta.p"),
+                                        header=F,stringsAsFactors=F))[,1]
+  gmetap <- gmetap*threspm[1]
+  gmetap[gmetap>1] <- 1
+
+  qfswp <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH, "QFsw.p"),
+                                       header=F,stringsAsFactors=F))[,1]
+  qfswp <- qfswp*threspm[3]
+  qfswp[qfswp>1] <- 1
+
+  gmetaqfswp <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH, "GmetaQFsw.p"),
+                                            header=F,stringsAsFactors=F))[,1]
+  gmetaqfswp <- gmetaqfswp*threspm[2]
+  gmetaqfswp[gmetaqfswp>1] <- 1
+
+  pm3 <- cbind(gmetap,gmetaqfswp,qfswp)
+  localsep <- 2e4
+  pm3min <- foreach(i=iter(pm3,by="row",chunksize=localsep),.combine="c",.inorder=T,.export='apminfun') %dopar% apminfun(i)
+
+  gmetares <- mandata(-log10(gmetap),cgwasenv$.MANCO,Sind)
+  qfswres <- mandata(-log10(qfswp),cgwasenv$.MANCO,Sind)
+  gmetaqfswres <- mandata(-log10(gmetaqfswp),cgwasenv$.MANCO,Sind)
+
+  pm3minres <- mandata(-log10(pm3min),cgwasenv$.MANCO,Sind)
+
+  orgtm <- foreach(i=1:cgwasenv$.TRAIT_NUM,.combine="cbind",.inorder=T,.export='readtm.tcomb') %dopar% readtm.tcomb(i, cgwasenv)
+
+  orgminp <- foreach(i=iter(orgtm,by="row",chunksize=localsep),.combine="c",.inorder=T,.export='apmaxfun') %dopar% apmaxfun(i)
+
+  coridm <- as.matrix(read.table(file.path(cgwasenv$.CGWAS_INFCOR_PATH, "EstCorrelation.txt"),
+                                 header=T,stringsAsFactors=F)[,c(1:2,4:5)])
+  orgcorm <- diag(cgwasenv$.TRAIT_NUM)
+  n <- 0
+  for(i in 2:cgwasenv$.TRAIT_NUM){
+    orgcorm[i:cgwasenv$.TRAIT_NUM,i-1] <- orgcorm[i-1,i:cgwasenv$.TRAIT_NUM] <- coridm[(n+1):(n+cgwasenv$.TRAIT_NUM-i+1),3]
+    n <- n+cgwasenv$.TRAIT_NUM-i+1
+  }
+
+  orgminp <- pchisq(orgminp,1,lower.tail=F)
+  orgminres <- mandata(-log10(orgminp),cgwasenv$.MANCO,Sind)
+
+
+  odpm3min <- sort(pm3min)
+  BHp3m <- p.adjust(odpm3min*bonfv,method="fdr")
+
+  idpp3m <- realidp <- (nrow(Sind)/1e6)
+
+  while((realidp<=idpp3m)&(realidp!=1)){
+    idpp3m <- realidp
+    n <- 0
+    fpn <- 0
+    while(fpn<idpp3m){
+      n <- n+1
+      fpn <- BHp3m[n]*n
+      if(BHp3m[n]>0.05){
+        break
+      }
+    }
+
+    thresp3m <- mean(odpm3min[c(n-1,n)])
+    if(n==1){
+      fdrp3m <- BHp3m[1]
+    } else{
+      fdrp3m <- BHp3m[n-1]
+    }
+
+    temv <- fdrfun(pm3minres,thresp3m,Gt=5e-8/bonfv,cgwasenv)[c(1,3)]
+    realidp <- temv[1]/temv[2]
+    if((realidp<=idpp3m)&((sum(odpm3min<=thresp3m)*fdrp3m)<realidp)){
+      idpp3m <- realidp
+      break
+    }
+  }
+
+  odorgminp <- sort(orgminp)
+  BHorgminp <- p.adjust(odorgminp*effvar(orgcorm),method="fdr")
+
+  idporg <- realidp <- (nrow(Sind)/1e6)
+
+  while((realidp<=idporg)&(realidp!=1)){
+    idporg <- realidp
+    n <- 0
+    fpn <- 0
+    while(fpn<idporg){
+      n <- n+1
+      fpn <- BHorgminp[n]*n
+      if(BHorgminp[n]>0.05){
+        break
+      }
+    }
+
+    thresorgmin <- mean(odorgminp[c(n-1,n)])
+    if(n==1){
+      fdrorg <- BHorgminp[1]
+    } else{
+      fdrorg <- BHorgminp[n-1]
+    }
+
+    temv <- fdrfun(orgminres,thresorgmin,Gt=5e-8/effvar(orgcorm),cgwasenv)[c(1,3)]
+    realidp <- temv[1]/temv[2]
+    if((realidp<=idporg)&((sum(odorgminp<=thresorgmin)*fdrorg)<realidp)){
+      idporg <- realidp
+      break
+    }
+  }
+
+  res1 <- signif(cbind(c(5e-8/effvar(orgcorm),
+                         thresorgmin,
+                         fdrorg,
+                         sum(odorgminp<=thresorgmin)*fdrorg/idporg,
+                         fdrfun(orgminres,thresorgmin,Gt=5e-8/effvar(orgcorm),cgwasenv)),
+                       c(5e-8/bonfv,
+                         thresp3m,
+                         fdrp3m,
+                         sum(odpm3min<=thresp3m)*fdrp3m/idpp3m,
+                         fdrfun(pm3minres,thresp3m,Gt=5e-8/bonfv,cgwasenv))),5)
+  colnames(res1) <- c("GWASmin","CGWASmin")
+  rownames(res1) <- c("Bonf-cf","Fdr-cf","Fdr","Exp-fp-idSNP","FdrSNP","SigSNP","FdrLoci","SigLoci","Fdr-only-Loci")
+  write.csv(res1,
+            file.path(cgwasenv$.CGWAS_RESULT_PATH, "Summary.csv"),
+            quote=F)
+
+
+  jpeg(file.path(cgwasenv$.CGWAS_RESULT_PATH, "MergeMan.jpg"),
+       width=7500,height=10000,res=600)
   par(mar=c(2,5,2,2))
-  manhattanPlot(cpfm,cex.axis=1,spt.cex=1,cpt.cex=1,spt.col=sing_col,cpt.col=comb_col,pch=20)
+  #layout(matrix(c(rep(c(rep(1,4),rep(2,4),rep(6,4)),4),rep(c(rep(3,3),rep(4,3),rep(5,3),rep(7,3)),3)),12,7))
+  layout(matrix(c(rep(c(rep(1,4),rep(3,4),rep(6,4)),4),rep(c(rep(2,3),rep(4,3),rep(5,3),rep(7,3)),3)),12,7))
+  manhattan(orgminres,orgminp,orgcorm,thresp3m,thresorgmin,pm3min,pm3,cex.axis=1,pt.cex=0.7,pt.col=c('lightblue2',rgb(102/255,190/255,1)),pch=20,St=thresorgmin,Gt=5e-8/effvar(orgcorm),Lm=cgwasenv$.MANCO,hl=2,locisep=cgwasenv$.LOCISEP)
+  manhattan(pm3minres,orgminp,orgcorm,thresp3m,thresorgmin,pm3min,pm3,cex.axis=1,pt.cex=0.7,pt.col=c('lightblue2',rgb(102/255,190/255,1)),pch=20,St=thresp3m,Gt=5e-8/bonfv,Lm=cgwasenv$.MANCO,hl=4,locisep=cgwasenv$.LOCISEP)
+  manhattan(pm3minres,orgminp,orgcorm,thresp3m,thresorgmin,pm3min,pm3,cex.axis=1,pt.cex=0.7,pt.col=c('lightblue2',rgb(102/255,190/255,1)),pch=20,St=thresp3m,Gt=5e-8/bonfv,Lm=cgwasenv$.MANCO,hl=1,locisep=cgwasenv$.LOCISEP)
+  manhattan(gmetares,orgminp,orgcorm,thresp3m,thresorgmin,pm3min,pm3,cex.axis=1,pt.cex=0.7,pt.col=c('brown2','firebrick4'),pch=20,St=thresp3m,Gt=5e-8,Lm=cgwasenv$.MANCO,hl=3,locisep=cgwasenv$.LOCISEP)
+  manhattan(gmetaqfswres,orgminp,orgcorm,thresp3m,thresorgmin,pm3min,pm3,cex.axis=1,pt.cex=0.7,pt.col=c('darkgoldenrod2','darkgoldenrod4'),pch=20,St=thresp3m,Gt=5e-8,Lm=cgwasenv$.MANCO,hl=3,locisep=cgwasenv$.LOCISEP)
+  manbar(pm3minres,pm3,orgminp,orgtm,orgcorm,thresorgmin,orgminp,cex.axis=1,St=thresp3m,Gt=5e-8,Lm=cgwasenv$.MANCO,locisep=cgwasenv$.LOCISEP)
+  manhattan(qfswres,orgminp,orgcorm,thresp3m,thresorgmin,pm3min,pm3,cex.axis=1,pt.cex=0.7,pt.col=c('limegreen','springgreen4'),pch=20,St=thresp3m,Gt=5e-8,Lm=cgwasenv$.MANCO,hl=3,locisep=cgwasenv$.LOCISEP)
+
   dev.off()
-  print(paste0("Manhattan Plots Completed"))
-  rm(cpfm)
-  gc()
 
-  print(paste0("Read Data For QQplots.."))
-  tsingm <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_result, "All.sp"),header=F))
-  tcombm <- as.matrix(data.table::fread(file.path(cgwasenv$.cgwas_result, "All.cp"),header=F))
-  minqqm <- cbind(singpm,cpm)
-
-  tsingm <- apply(tsingm,2,function(a){return(a[order(a)])})
-  print(paste0("QQplots: GWAS Data Extracted"))
-  tcombm <- apply(tcombm,2,function(a){return(a[order(a)])})
-  print(paste0("QQplots: CGWAS Data Extracted"))
-
-  sgif <- as.numeric(qnorm(apply(tsingm/2,2,function(a){return(mean(a[c(floor(cgwasenv$.Rsnpnum/2),ceiling(cgwasenv$.Rsnpnum/2))]))}))/qnorm(0.25))
-  cgif <- as.numeric(qnorm(apply(tcombm/2,2,function(a){return(mean(a[c(floor(cgwasenv$.Rsnpnum/2),ceiling(cgwasenv$.Rsnpnum/2))]))}))/qnorm(0.25))
-  print(paste0("Lambda Calculated"))
-
-  c1 <- round(cgwasenv$.Rsnpnum*0.0001)
-  cc1 <- round(cgwasenv$.Rsnpnum*0.000001)
-  c2 <- round(cgwasenv$.Rsnpnum*0.001)
-  cc2 <- round(cgwasenv$.Rsnpnum*0.00001)
-  c3 <- round(cgwasenv$.Rsnpnum*0.01)
-  c4 <- round(cgwasenv$.Rsnpnum*0.1)
-  if(cgwasenv$.Rsnpnum>=1e6){
-    cgwasenv$.qv <- c(1:(c1-1),seq(c1,(c2-1),cc1),seq(c2,(c3-1),cc2),seq(c3,(c4-1),c1),seq(c4,cgwasenv$.Rsnpnum-100,c2),(cgwasenv$.Rsnpnum-99):cgwasenv$.Rsnpnum)
-  } else if(cgwasenv$.Rsnpnum>=1e5){
-    cgwasenv$.qv <- c(1:(c2-1),seq(c2,(c3-1),cc2),seq(c3,(c4-1),c1),seq(c4,cgwasenv$.Rsnpnum-100,c2),(cgwasenv$.Rsnpnum-99):cgwasenv$.Rsnpnum)
-  } else{
-    cgwasenv$.qv <- 1:cgwasenv$.Rsnpnum
-  }
-
-  minqqm <- apply(minqqm,2,function(a){return(a[order(a)])})
-  tsingm <- -log10(tsingm[cgwasenv$.qv,])
-  tcombm <- -log10(tcombm[cgwasenv$.qv,])
-  minqqm <- -log10(minqqm[cgwasenv$.qv,])
-  ee <- -log10(ppoints(cgwasenv$.Rsnpnum)[cgwasenv$.qv])
-
-  print(paste0("Produce QQ Plots.."))
-  jpeg(file.path(cgwasenv$.cgwas_result, "qq.jpg"),width=q_wid,height=q_hei,res=300)
-  par(mfrow=c(2,3))
-  par(mar=c(5,5,2,2))
-  qqPlot(tsingm,tcombm,minqqm,ee,sgif,cgif,c(sing_col[1],comb_col[1]))
-  dev.off()
-  print(paste0("QQ Plots Completed"))
-
-  step6Time2 <- Sys.time()
-  print(paste0("step6 use time:"))
-  print(step6Time2 - step6Time1)
-  print(paste0("Step6 Completed"))
+  stopCluster(sb)
 }
 
-step7 <- function(){
-  step7Time1 <- Sys.time()
-  basegm <- read.csv(file.path(cgwasenv$.cgwas_result, "GwasRawSuggHits.csv"),header=T,stringsAsFactors=F)
-  basecm <- read.csv(file.path(cgwasenv$.cgwas_result, "CgwasRawSuggHits.csv"),header=T,stringsAsFactors=F)
-  singpm <- as.data.frame(data.table::fread(file.path(cgwasenv$.cgwas_result, "Min.corrsp"),header=F))
-  cpm <- as.data.frame(data.table::fread(file.path(cgwasenv$.cgwas_result, "Min.corrcp"),header=F))
-  print(paste0("Read Data Completed"))
-  SNPn <- unique(basegm$SNP)
-  tem <- c()
-  for(i in 1:length(SNPn)){
-    temgm <- basegm[(((i-1)*cgwasenv$.pheNum+1):(i*cgwasenv$.pheNum)),]
-    temcm <- basecm[(((i-1)*cgwasenv$.pheNum+1):(i*cgwasenv$.pheNum)),]
-    fdrsp <- as.numeric(temgm[,5])
-    fdrcp <- as.numeric(temcm[,5])
-    sgt <- 0
-    cgt <- 0
-    temv <- c(temgm[1,1:5],temcm[1,5],temgm[1,6],sgt,cgt,temcm[1,6],c(temgm[,6],fdrsp,fdrcp[order(temcm[,6])])[rep(seq(1,3*cgwasenv$.pheNum,cgwasenv$.pheNum),cgwasenv$.pheNum)+rep(0:(cgwasenv$.pheNum-1),each=3)])
-    tem <- rbind(tem,temv)
-  }
-  print(paste0("Format Data Completed"))
+step10 <- function(cgwasenv) {
+  # Summary
 
-  locim <- matrix(unlist(tem[,1:2]),ncol=2)
-  locic <- c()
-  startchr <- locim[1,1]
-  startbp <- locim[1,2]
-  startloci <- 1
-  locinum <- 1
-  for(i in 1:nrow(locim)){
-    if(locim[i,1]==startchr){
-      if((locim[i,2]-startbp)<500000){
-        locic[i] <- paste(startchr,"_",startloci,sep="")
-        startbp <- locim[i,2]
-      } else{
-        startloci <- startloci + 1
-        locinum <- locinum + 1
-        locic[i] <- paste(startchr,"_",startloci,sep="")
-        startbp <- locim[i,2]
-      }
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  Sind <- as.data.frame(fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH,"SnpIndex"),
+                              header=T))
+
+  threspm <- as.numeric(unlist(read.table(file.path(cgwasenv$.CGWAS_GMA_PATH,"MTT"),
+                                          header=F,stringsAsFactors=F)))
+  swit <- FALSE
+  bonfv <- length(threspm)
+  if(length(threspm)==2){
+    threspm[3] <- threspm[2]
+    swit <- TRUE
+  }
+
+  basedminfo <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaPreCombination"),
+                           header=F,stringsAsFactors=F)
+  advdminfo <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaCoefficient2"),
+                          header=F,stringsAsFactors=F)
+
+  gmetadirc <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"Gmeta.dirc"),
+                                           header=F,stringsAsFactors=F))
+  gmetatm <- foreach(i=1:length(basedminfo[,1]),.combine="cbind",.inorder=T,.export='readtm.gmeta') %dopar% readtm.gmeta(i,cgwasenv)
+  gmetaqfswtm <- foreach(i=1:length(advdminfo[,1]),.combine="cbind",.inorder=T,.export='readtm.gmetad') %dopar% readtm.gmetad(i,cgwasenv)
+
+  qfsword <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"QFsw.ord"),
+                                         header=F,stringsAsFactors=F))
+  qfswordp <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"QFsw.ordp"),
+                                          header=F,stringsAsFactors=F))
+
+  gmetaqfsword <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaQFsw.ord"),
+                                              header=F,stringsAsFactors=F))
+  gmetaqfswordp <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaQFsw.ordp"),
+                                               header=F,stringsAsFactors=F))
+
+  gmetap <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"Gmeta.p"),
+                                                 header=F,stringsAsFactors=F))[,1]
+  qfswp <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"QFsw.p"),
+                                       header=F,stringsAsFactors=F))[,1]
+  gmetaqfswp <- as.matrix(fread(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaQFsw.p"),
+                                            header=F,stringsAsFactors=F))[,1]
+  orgpm3 <- cbind(gmetap,gmetaqfswp,qfswp)
+
+  gmetap <- gmetap*threspm[1]
+  gmetap[gmetap>1] <- 1
+  qfswp <- qfswp*threspm[3]
+  qfswp[qfswp>1] <- 1
+  gmetaqfswp <- gmetaqfswp*threspm[2]
+  gmetaqfswp[gmetaqfswp>1] <- 1
+
+  pm3 <- cbind(gmetap,gmetaqfswp,qfswp)
+  localsep <- 2e4
+  pm3min <- foreach(i=iter(pm3,by="row",chunksize=localsep),.combine="c",.inorder=T,.export='apminfun') %dopar% apminfun(i)
+
+  orgtm <- foreach(i=1:cgwasenv$.TRAIT_NUM,.combine="cbind",.inorder=T,.export='readtm.tcomb') %dopar% readtm.tcomb(i,cgwasenv)
+
+  localsep <- 2e4
+  orgminp <- foreach(i=iter(orgtm,by="row",chunksize=localsep),.combine="c",.inorder=T,.export='apmaxfun') %dopar% apmaxfun(i)
+
+  coridm <- as.matrix(read.table(file.path(cgwasenv$.CGWAS_INFCOR_PATH,"EstCorrelation.txt"),
+                                 header=T,stringsAsFactors=F)[,c(1:2,4:5)])
+  orgcorm <- diag(cgwasenv$.TRAIT_NUM)
+  n <- 0
+  for(i in 2:cgwasenv$.TRAIT_NUM){
+    orgcorm[i:cgwasenv$.TRAIT_NUM,i-1] <- orgcorm[i-1,i:cgwasenv$.TRAIT_NUM] <- coridm[(n+1):(n+cgwasenv$.TRAIT_NUM-i+1),3]
+    n <- n+cgwasenv$.TRAIT_NUM-i+1
+  }
+
+  orgminp <- pchisq(orgminp,1,lower.tail=F)
+
+  st <- read.csv(file.path(cgwasenv$.CGWAS_RESULT_PATH,"Summary.csv"),
+                 row.names=1,header=T,stringsAsFactors=F)
+
+  orgseid <- order(orgminp)[1:st[5,1]]
+  #orgseid <- order(orgminp)[1:st[5,2]]
+  #tt <- Sind[orgseid,]
+  #tt <- tt[order(tt[,2]),]
+  #tt <- tt[order(tt[,1]),]
+  #write.csv(tt,"../../Result/GWASmorehits.csv",row.names=F,quote=F)
+
+  if(st[6,1]!=0){
+    orgsig <- c(rep(1,st[6,1]),rep(2,st[5,1]-st[6,1]))
+  } else{
+    orgsig <- c(rep(2,st[5,1]))
+  }
+
+  forloci <- cbind(Sind[orgseid,],orgminp[orgseid])
+  forloci <- forloci[order(forloci[,2]),]
+  forloci <- forloci[order(forloci[,1]),]
+  orglociv <- fdrfun.summary(forloci,cgwasenv)
+  orginfom <- cbind(rownames(orglociv),orglociv[,-4],orgsig)
+
+  p3mseid <- order(pm3min)[1:st[5,2]]
+  if(st[6,2]!=0){
+    p3msig <- c(rep(1,st[6,2]),rep(2,st[5,2]-st[6,2]))
+  } else{
+    p3msig <- c(rep(2,st[5,2]))
+  }
+
+  forloci <- cbind(Sind[p3mseid,],pm3min[p3mseid])
+  forloci <- forloci[order(forloci[,2]),]
+  forloci <- forloci[order(forloci[,1]),]
+  p3mlociv <- fdrfun.summary(forloci,cgwasenv)
+  p3minfom <- cbind(rownames(p3mlociv),p3mlociv[,-4],p3msig)
+
+  allselid <- as.data.frame(union(orgseid,p3mseid))
+
+  colnames(allselid) <- colnames(orginfom)[1] <- colnames(p3minfom)[1] <- "SummaryID"
+
+  allinfom <- merge(merge(allselid,p3minfom,by="SummaryID",all.x=T,all.y=T,sort=F)[,-c(2:4)],
+                    orginfom,by="SummaryID",all.x=T,all.y=T,sort=F)[,-c(4:6)]
+  allinfom[is.na(allinfom[,3]),3] <- 3
+  allinfom[is.na(allinfom[,5]),5] <- 3
+
+  allselid <- allinfom[,1]
+  op <- pchisq(orgtm[allselid,]^2,1,lower.tail=F)
+  mt <- cgwasenv$.TRAIT_NAME[apply(op,1,function(a){return(order(a)[1])})]
+  allinfom <- cbind(Sind[allselid,],allinfom,mt,
+                    signif(as.data.frame(cbind(pm3min[allselid],pm3min[allselid]*bonfv,
+                                               orgminp[allselid],orgminp[allselid]*effvar(orgcorm),
+                                               orgpm3[allselid,],pm3[allselid,],orgtm[allselid,],
+                                               op,gmetatm[allselid,],pchisq(gmetatm[allselid,]^2,1,lower.tail=F),
+                                               gmetadirc[allselid,],qfsword[allselid,],qfswordp[allselid,],
+                                               gmetaqfswtm[allselid,],pchisq(gmetaqfswtm[allselid,]^2,1,lower.tail=F),
+                                               gmetaqfsword[allselid,],gmetaqfswordp[allselid,])),5))
+
+  allinfom <- allinfom[order(allinfom[,4]),]
+
+  colnames(allinfom) <- c("CHR","BP","SNP",
+                          "SummaryID","Cp-loci","Cp-significance","Sp-loci","Sp-significance",
+                          "MinTrait","Mincp-uncorr","Mincp-corr","Minsp-uncorr","Minsp-corr",
+                          "Gm-uncorr","Gmqf-uncorr","Qf-uncorr","Gm-corr","Gmqf-corr","Qf-corr",
+                          paste0("T_",cgwasenv$.TRAIT_NAME),paste0("P_",cgwasenv$.TRAIT_NAME),
+                          paste0("T_gm_",basedminfo[,3]),paste0("P_gm_",basedminfo[,3]),
+                          paste0("D_gm_",basedminfo[,3]),paste0("O_qf_",1:length(basedminfo[,1])),
+                          paste0("Cp_qf_",1:length(basedminfo[,1])),paste0("T_gmqf_",1:length(advdminfo[,1])),
+                          paste0("P_gmqf_",1:length(advdminfo[,1])),paste0("O_gmqf_",1:length(advdminfo[,1])),
+                          paste0("Cp_gmqf_",1:length(advdminfo[,1])))
+
+  cpod <- cpnv <- allinfom[,5]
+  for(i in 1:max(allinfom[,5],na.rm=T)){
+    ttid <- which(allinfom[,5]==i)
+    cpod[ttid] <- rank(allinfom[ttid,10],ties.method="random")
+    if(all(allinfom[ttid,8]==3)){
+      cpnv[ttid] <- 1
     } else{
-      startchr <- locim[i,1]
-      startloci <- 1
-      locinum <- locinum + 1
-      locic[i] <- paste(startchr,"_",startloci,sep="")
-      startbp <- locim[i,2]
+      cpnv[ttid] <- 2
     }
   }
-  print(paste0("Loci Zoning Completed"))
+  cpnv <- as.data.frame(cpnv)
+  colnames(cpnv) <- "Cp-novel-loci"
+  cpod <- as.data.frame(cpod)
+  colnames(cpod) <- "Cp-order"
 
-  tem <- cbind(tem[,1:4],locic,singpm[as.numeric(tem[,4]),1],cpm[as.numeric(tem[,4]),1],tem[,5:ncol(tem)])
-  if(length(which((tem[,6]>cgwasenv$.St)&(tem[,7]>cgwasenv$.St)))!=0){
-    tem <- tem[-which((tem[,6]>cgwasenv$.St)&(tem[,7]>cgwasenv$.St)),]
+  spod <- spnv <- allinfom[,7]
+  for(i in 1:max(allinfom[,7],na.rm=T)){
+    ttid <- which(allinfom[,7]==i)
+    spod[ttid] <- rank(allinfom[ttid,12],ties.method="random")
+    if(all(allinfom[ttid,6]==3)){
+      spnv[ttid] <- 1
+    } else{
+      spnv[ttid] <- 2
+    }
+  }
+  spnv <- as.data.frame(spnv)
+  colnames(spnv) <- "Sp-novel-loci"
+  spod <- as.data.frame(spod)
+  colnames(spod) <- "Sp-order"
+
+  write.csv(cbind(allinfom[,c(1:3,5)],cpnv,cpod,allinfom[,6:7],spnv,spod,allinfom[,c(8:10,12,17:19)]),
+            file.path(cgwasenv$.CGWAS_RESULT_PATH,"Summaryhits.csv"),
+            row.names=F,quote=F)
+  allinfom <- allinfom[,-9]
+  write.csv(allinfom,
+            file.path(cgwasenv$.CGWAS_RESULT_PATH,"Allhits.csv"),
+            row.names=F,quote=F)
+
+  stopCluster(sb)
+}
+
+step11 <- function(cgwasenv) {
+  # Sumbarplot
+
+  sb <- makeCluster(cgwasenv$.PARAL_NUM)
+  registerDoParallel(sb)
+
+  coridm <- as.matrix(read.table(file.path(cgwasenv$.CGWAS_INFCOR_PATH, "EstCorrelation.txt"),
+                                 header=T,stringsAsFactors=F)[,c(1:2,4:5)])
+  orgcorm <- diag(cgwasenv$.TRAIT_NUM)
+  n <- 0
+  for(i in 2:cgwasenv$.TRAIT_NUM){
+    orgcorm[i:cgwasenv$.TRAIT_NUM,i-1] <- orgcorm[i-1,i:cgwasenv$.TRAIT_NUM] <- coridm[(n+1):(n+cgwasenv$.TRAIT_NUM-i+1),3]
+    n <- n+cgwasenv$.TRAIT_NUM-i+1
   }
 
-  tem[which(tem[,6]<=cgwasenv$.St),11] <- 1
-  tem[which(tem[,6]<=cgwasenv$.Gt),11] <- 2
-  tem[which(tem[,7]<=cgwasenv$.St),12] <- 1
-  tem[which(tem[,7]<=cgwasenv$.Gt),12] <- 2
+  yl <- c(seq(0,12,2),seq(15,60,5))
+  yll <- c(0,2,4,6,8,10,12,15,20,30,40,60,80,100,150,200,300)
 
-  colnames(tem) <- c(colnames(tem)[1:4],"Loci","MinCorrSp","MinCorrCp","MinSp","MinCp","MinSpTrait","SpSigType","CpSigType","MinCpNum",paste0(c("Rank","Sp","Cp"),rep(1:cgwasenv$.pheNum,each=3)))
-  write.csv(tem,file.path(cgwasenv$.cgwas_result, "AllHits.csv"),row.names=F,quote=F)
+  highcorc <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaCoefficient0"),
+                         header=F,stringsAsFactors=F)
+  gmqfc <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaCoefficient2"),
+                      header=F,stringsAsFactors=F)
 
-  topsnpi <- c()
-  Sp_or_Cp <- c()
-  for(i in unique(locic)){
-    gt <- intersect(which(locic==i),as.numeric(which(unlist(tem[,6])==min(as.numeric(tem[which(locic==i),6])))))
-    ct <- intersect(which(locic==i),as.numeric(which(unlist(tem[,7])==min(as.numeric(tem[which(locic==i),7])))))
-    temv <- union(ct,gt)
-    indv <- order(temv)
-    topsnpi <- c(topsnpi,temv[indv])
-    gv <- rep(0,length(temv))
-    for(j in 1:length(gt)){
-      gv[which(temv==gt[j])] <- 1
+  highcorinfo <- read.table(file.path(cgwasenv$.CGWAS_GMA_PATH,"GmetaPreCombination"),
+                            header=F,stringsAsFactors=F)
+
+  highcorcnum <- (ncol(highcorc)-3)/7
+  gmqfcnum <- (ncol(gmqfc)-3)/5
+
+  dm <- read.csv(file.path(cgwasenv$.CGWAS_RESULT_PATH,"Allhits.csv"),
+                 header=T,stringsAsFactors=F)
+  sumdm <- read.csv(file.path(cgwasenv$.CGWAS_RESULT_PATH,"Summaryhits.csv"),
+                    header=T,stringsAsFactors=F)
+
+  allid <- sort(union(which(sumdm[,6]==1),which(sumdm[,10]==1)))
+  figname <- c()
+  for(ii in allid){
+    if(is.na(sumdm[ii,10])){
+      figname <- c(figname,paste0(sumdm[ii,1],"_",round(sumdm[ii,2]/1e6,1),"_C",sumdm[ii,4],"_",sumdm[ii,3]))
+    } else if(is.na(sumdm[ii,6])){
+      figname <- c(figname,paste0(sumdm[ii,1],"_",round(sumdm[ii,2]/1e6,1),"_S",sumdm[ii,8],"_",sumdm[ii,3]))
+    } else if(sumdm[ii,6]==sumdm[ii,10]){
+      figname <- c(figname,paste0(sumdm[ii,1],"_",round(sumdm[ii,2]/1e6,1),"_C",sumdm[ii,4],"S",sumdm[ii,8],"_",sumdm[ii,3]))
+    } else if(as.numeric(sumdm[ii,6])==1){
+      figname <- c(figname,paste0(sumdm[ii,1],"_",round(sumdm[ii,2]/1e6,1),"_C",sumdm[ii,4],"s",sumdm[ii,8],"_",sumdm[ii,3]))
+    } else{
+      figname <- c(figname,paste0(sumdm[ii,1],"_",round(sumdm[ii,2]/1e6,1),"_c",sumdm[ii,4],"S",sumdm[ii,8],"_",sumdm[ii,3]))
     }
-    cv <- rep(0,length(temv))
-    for(j in 1:length(ct)){
-      cv[which(temv==ct[j])] <- 2
-    }
-    mv <- c(gv+cv)[indv]
-    mv[mv==1] <- "S"
-    mv[mv==2] <- "C"
-    mv[mv==3] <- "SC"
-    Sp_or_Cp <- c(Sp_or_Cp,mv)
   }
-  print(paste0("Pick Top Hits Completed"))
-  write.csv(cbind(tem[topsnpi,1:5],Sp_or_Cp,tem[topsnpi,6:ncol(tem)]),file.path(cgwasenv$.cgwas_result, "TopSNP.csv"),row.names=F,quote=F)
 
-  step7Time2 <- Sys.time()
-  print(paste0("step7 use time:"))
-  print(step7Time2 - step7Time1)
-  print(paste0("Step7 Completed"))
+  nuu <- foreach(i=1:length(allid),.inorder=F,.export="barfig") %dopar%
+    barfig(i,dm,allid,figname,yl,yll,highcorc,highcorinfo,highcorcnum,gmqfc,gmqfcnum,orgcorm,cgwasenv)
+
+  stopCluster(sb)
 }
