@@ -1,0 +1,18 @@
+Package: CGWAS
+Type: Package
+Title: Integrating multiple single trait GWAS results
+Version: 2.3.4
+Author: Ziyi Xiong, Xingjian Gao, Fan Liu
+Maintainer: Xingjian Gao <gaoxingjian@big.ac.cn>
+Description: Implements CGWAS for combining multiple single trait GWAS results to calculate integrate association result from a set of trait combinations for each SNP specifically.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Imports: 
+    data.table,
+    foreach,
+    doParallel,
+    MASS,
+    iterators
+Depends:
+RoxygenNote: 6.1.1
