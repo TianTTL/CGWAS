@@ -35,144 +35,177 @@
 #' number of unsable CPUs if it is set as an integer greater than 1. Otherwise,
 #' the function will run in serial mode.
 #'
-#' @param cgwas_dir blablabla
-#' @param cgwas_data_dir blablabla
-#' @param trait_data_name blablabla
-#' @param trait_name blablabla
-#' @param trait_num blablabla
-#' @param snp_column_index blablabla
-#' @param assoc_column_index blablabla
-#' @param paral_num blablabla
-#' @param plotFlag indicate whether output the manhattan plot or bar plot
-#' @param heteroprop blablabla
-#' @param Ccp blablabla
-#' @param Manco blablabla
-#' @param Locisep blablabla
+#' @param gwasFileDir blablabla
+#' @param gwasFileName blablabla
+#' @param snpColInx blablabla
+#' @param assocColInx blablabla
+#' @param mafFilePath blablabla
+#' @param threadN blablabla
+#' @param outputPath blablabla
+#' @param traitName blablabla
+#' @param pt blablabla
+#' @param simulN blablabla
 #'
 #' @examples
 #'
-#' cgwas_dir <- getwd()
-#' cgwas_data_dir <- system.file("extdata", package = "CGWAS")
-#' trait_data_name <- c("phe1.assoc", "phe2.assoc", "phe3.assoc", "phe4.assoc", "phe5.assoc")
-#' trait_name <- c("phe1", "phe2", "phe3", "phe4", "phe5")
-#' trait_num <-c(10015, 10015, 10015, 10015, 10015)
-#' snp_column_index <- c(1,2,3)
-#' assoc_column_index <- c(4,5)
-#' paral_num <- 1
-#' plotFlag <- 1
-#' cgwas(cgwas_dir, cgwas_data_dir, trait_data_name, trait_name, trait_num,
-#'       snp_column_index, assoc_column_index, paral_num)
+#' gwasFileDir <- system.file("extdata", package = "CGWAS")
+#' gwasFileName <- c("phe1.assoc", "phe2.assoc", "phe3.assoc", "phe4.assoc", "phe5.assoc")
+#' snpColInx <- c(1, 2, 3)
+#' assocColInx <- c(4, 5)
+#' mafFilePath <- NULL
+#' threadN <- 4
+#' outputPath <- getwd()
+#' traitName <- c("phe1", "phe2", "phe3", "phe4", "phe5")
+#' pt <- NULL
+#' simulN <- 200
+#'
+#' CGWAS(gwasFileDir, gwasFileName, snpColInx, assocColInx,
+#'       mafFilePath, threadN, outputPath, traitName, pt, simulN)
 #'
 #' @export
-cgwas <- function(cgwas_dir, cgwas_data_dir,
-                  trait_data_name, trait_name, trait_num, snp_column_index,
-                  assoc_column_index, paral_num,
-                  plotFlag = 1, heteroprop=1, Ccp=0.1, Manco=0.01, Locisep=2.5e5) {
-  print("CGWAS version 2.3.4")
+CGWAS <- function(gwasFileDir,
+                  gwasFileName,
+                  snpColInx,
+                  assocColInx,
+                  mafFilePath = NULL,
+                  threadN = ceiling(doparallel::detectCores() / 2),
+                  outputPath = getwd(),
+                  traitName = NULL,
+                  pt = NULL,
+                  simulN = 2e3) {
+
+  print("---- C-GWAS version 1.8 start ----")
 
   cgwasenv <- list()
 
-  cgwasenv$.CGWAS_DIR <- cgwas_dir
-  cgwasenv$.CGWAS_DATA_DIR <- cgwas_data_dir
-  cgwasenv$.TRAIT_DATA_NAME <- trait_data_name
-  cgwasenv$.TRAIT_NAME <- trait_name
-  cgwasenv$.TRAIT_EFFECT_SIZE <- trait_num
-  cgwasenv$.SNP_COLUMN_INDEX <- snp_column_index
-  cgwasenv$.ASSOC_COLUMN_INDEX <- assoc_column_index
-  cgwasenv$.PARAL_NUM <- min(parallel::detectCores() - 1, paral_num)
+  # --------------------- Basic parameters --------------------- #
+
+  # Dirctory containing single trait association file
+  cgwasenv$.GWAS_FILE_DIR <- gwasFileDir
+
+  # Single trait association file name
+  cgwasenv$.GWAS_FILE_NAME <- gwasFileName
+
+  # Column number of SNP index (CHR & BP & SNP)
+  cgwasenv$.SNP_COLUMN_INDEX <- snpColInx
+
+  # Column number of association data (BETA & P)
+  cgwasenv$.ASSOC_COLUMN_INDEX <- assocColInx
+
+  # MAF file path
+  cgwasenv$.MAF_FILE_PATH <- mafFilePath
+
+  # MAF file exist?
+  cgwasenv$.MAF_FILE_EXIST <- !is.null(mafFilePath)
+
+  # Parallel task number
+  cgwasenv$.PARAL_NUM <- min(parallel::detectCores() - 1, threadN)
+
+  # Work dirctory of C-GWAS
+  cgwasenv$.CGWAS_DIR <- outputPath
+
+  # Trait name
+  if (is.null(traitName)) {
+    cgwasenv$.TRAIT_NAME <- gwasFileName
+  } else {
+    cgwasenv$.TRAIT_NAME <- traitName
+  }
+
+  # Traits number
   cgwasenv$.TRAIT_NUM <- length(cgwasenv$.TRAIT_NAME)
-  cgwasenv$.HETEROPROP <- heteroprop
-  cgwasenv$.CCP <- Ccp
-  cgwasenv$.MANCO <- Manco
-  cgwasenv$.LOCISEP <- Locisep
+
+  # main effect threshold
+  # 建议 pt>1 / 独立SNP数量，否则出错概率增大
+  # 建议 pt<10 / 独立SNP数量，否则结果可能变差
+  # independent SNP size = 1e6 * (snp.N / 1e7)
+  if (is.null(pt)) {
+    snpn.gwas.tmp <- length(count.fields(file.path(cgwasenv$.GWAS_FILE_DIR, cgwasenv$.GWAS_FILE_NAME[1]),
+                                         '\n')) - 1
+    cgwasenv$.P_THRD <- 1 / (1e6 * snpn.gwas.tmp / 1e7)
+  } else {
+    cgwasenv$.P_THRD <- pt
+  }
+
+  # Simulation times
+  cgwasenv$.SIMUL_N <- simulN
+
+  # --------------------- Advanced parameters --------------------- #
+
+  # min SNP number threshold
+  cgwasenv$.SNP_N_THD <- 5e5
+
+  # FDR test set
+  cgwasenv$.FDR_SET <- c(seq(0.0001, 0.0009, 0.0001), seq(0.001, 0.05, 0.001))
+
+  # minimum EbICo power increase ratio
+  cgwasenv$.MIN_EbiCo_POWER <- 1.1
+
+  # minimum correlation difference
+  cgwasenv$.MIN_CORR_DIFF <- 0.05
+
+  # high correlation restriction (squared)
+  cgwasenv$.HIGH_CORR2_RES <- 0.7
+  cgwasenv$.HIGH_CORR_RES <- sqrt(cgwasenv$.HIGH_CORR2_RES)
+
+  # Equivalent sample size increase ratio
+  cgwasenv$.SAMPLE_SIZE_INC <- 0.7
+
+  # SWaT stratification cutoff
+  cgwasenv$.SWaT_STRAT_CUT <- 10^(seq(0,-5,-1/3))[-1]
+
+  # Simulated SNP number
+  cgwasenv$.SIMUL_SNP_N <- 5e4
+
+  # Independent SNP number
+  cgwasenv$.IND_SNP_N <- 1e6
+
+  # LOESS span vector
+  cgwasenv$.LOESS_SPAN_V <- c(0.03, 0.1, 0.75)
+
+  # LOESS interval p
+  cgwasenv$.LOESS_INTER_P <- c(0.05, 0.001)
+
+  # Loci interval
+  cgwasenv$.LOCI_INTER <- 2.5e5
 
   cgwasenv$.CGWAS_TEMPDATA_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Tempdata")
   cgwasenv$.CGWAS_COLDATA_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Tempdata", "Coldata")
-  cgwasenv$.CGWAS_INFCOR_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Tempdata", "Infcor")
-  cgwasenv$.CGWAS_GMA_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Tempdata", "GMA")
   cgwasenv$.CGWAS_RESULT_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Result")
-  cgwasenv$.CGWAS_BARPLOTS_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Result", "Barplots")
-
-
-  cgwasenv
 
   # create directory of intermediate result
   dir.create(cgwasenv$.CGWAS_TEMPDATA_PATH, recursive = T, showWarnings = F)
   dir.create(cgwasenv$.CGWAS_COLDATA_PATH, recursive = T, showWarnings = F)
-  dir.create(cgwasenv$.CGWAS_INFCOR_PATH, recursive = T, showWarnings = F)
-  dir.create(cgwasenv$.CGWAS_GMA_PATH, recursive = T, showWarnings = F)
   dir.create(cgwasenv$.CGWAS_RESULT_PATH, recursive = T, showWarnings = F)
-  if (plotFlag) {
-    dir.create(cgwasenv$.CGWAS_BARPLOTS_PATH, recursive = T, showWarnings = F)
-  }
 
-  # Step1 StatExtraction
+  print(cgwasenv)
+
+  # Step1 Statistic Summary Extraction
   ts <- Sys.time()
   step1(cgwasenv)
   print("Step1 finished")
-  print(difftime(Sys.time(),ts))
+  print(difftime(Sys.time(), ts))
 
-  # Step2 InflationCorr
+  # Step2 Inflation Correlation Estimation
   ts <- Sys.time()
   step2(cgwasenv)
   print("Step2 finished")
-  print(difftime(Sys.time(),ts))
+  print(difftime(Sys.time(), ts))
 
-  # Step3 CorEstimation
+  # Step3 EbICo
   ts <- Sys.time()
   step3(cgwasenv)
   print("Step3 finished")
-  print(difftime(Sys.time(),ts))
+  print(difftime(Sys.time(), ts))
 
-  # Step4 preGMA
+  # Step4 SWaT
   ts <- Sys.time()
   step4(cgwasenv)
   print("Step4 finished")
-  print(difftime(Sys.time(),ts))
+  print(difftime(Sys.time(), ts))
 
-  # Step5 GMA
+  # Step5 Summary
   ts <- Sys.time()
   step5(cgwasenv)
   print("Step5 finished")
-  print(difftime(Sys.time(),ts))
-
-  # Step6 GMA+QFSW-2
-  ts <- Sys.time()
-  step6(cgwasenv)
-  print("Step6 finished")
-  print(difftime(Sys.time(),ts))
-
-  # Step7 QFSW
-  ts <- Sys.time()
-  step7(cgwasenv)
-  print("Step7 finished")
-  print(difftime(Sys.time(),ts))
-
-  # Step8 Simulation
-  ts <- Sys.time()
-  step8(cgwasenv)
-  print("Step8 finished")
-  print(difftime(Sys.time(),ts))
-
-  # Step9 Visualization
-  if (plotFlag) {
-    ts <- Sys.time()
-    step9(cgwasenv)
-    print("Step9 finished")
-    print(difftime(Sys.time(),ts))
-  }
-
-  # Step10 Summary
-  ts <- Sys.time()
-  step10(cgwasenv)
-  print("Step10 finished")
-  print(difftime(Sys.time(),ts))
-
-  # Step11 Sumbarplots
-  if (plotFlag) {
-    ts <- Sys.time()
-    step11(cgwasenv)
-    print("Step11 finished")
-    print(difftime(Sys.time(),ts))
-  }
+  print(difftime(Sys.time(), ts))
 }

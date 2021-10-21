@@ -1,3 +1,4 @@
+#' @import utils grDevices graphics stats
 #' @importFrom data.table fread fwrite
 #' @importFrom foreach foreach %dopar%
 #' @importFrom doParallel registerDoParallel
