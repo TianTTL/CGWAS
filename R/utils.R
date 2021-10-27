@@ -1,8 +1,8 @@
 StatE1 <- function(traitid, cgwasenv) {
-  df <- data.table::fread(file.path(cgwasenv$.GWAS_FILE_DIR, cgwasenv$.GWAS_FILE_NAME[traitid]),
+  df <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[traitid],
                           header = T, stringsAsFactors = F, nThread = 1)
   df <- as.data.frame(df)
-  bpm <- df[,cgwasenv$.ASSOC_COLUMN_INDEX]
+  bpm <- df[,cgwasenv$.ASSOC_COLUMN_INDEX[4:5]]
   data.table::fwrite(bpm,
                      file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(traitid, ".bp")),
                      row.names = F, col.names = T, quote = F, nThread = 1)
@@ -27,10 +27,10 @@ StatE2 <- function(traitid, naid, cgwasenv) {
   file.remove(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(traitid, ".bp")))
 
   if (traitid == 1) {
-    df <- data.table::fread(file.path(cgwasenv$.GWAS_FILE_DIR, cgwasenv$.GWAS_FILE_NAME[1]),
+    df <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[1],
                             header = T, stringsAsFactors = F, nThread = 1)
     df <- as.data.frame(df)
-    df.snp <- df[,cgwasenv$.SNP_COLUMN_INDEX]
+    df.snp <- df[,cgwasenv$.ASSOC_COLUMN_INDEX[1:3]]
     if (length(naid) != 0) {
       df.snp <- df.snp[-naid,]
     }
@@ -225,7 +225,7 @@ ridl.ICE <- function(repn, minsnpn, cgwasenv) {
   return(idm)
 }
 
-Coresti.ebico <- function(t1, t2, id1, id2, resinfm, ranidlist, cgwasenv) {
+Coresti.ebico <- function(t1, t2, id1, id2, ranidlist, cgwasenv) {
   mt2 <- as.numeric(c(id1, id2)) + 1
   ax1 <- t1^2
   ax2 <- t2^2
@@ -310,7 +310,7 @@ CorE.ebico <- function(traitid, newt, TNm, x2m, did, ranidlist, cgwasenv) {
   t1 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH,
                                               paste0(TNm[traitid, 1], ".efstat")),
                                     header=F, nThread = 1))[,1]
-  corm <- Coresti.ebico(t1, newt, TNm[traitid, 2], x2m[did], resinfm, ranidlist, cgwasenv)
+  corm <- Coresti.ebico(t1, newt, TNm[traitid, 2], x2m[did], ranidlist, cgwasenv)
   return(corm)
 }
 
@@ -451,7 +451,7 @@ mkdf <- function(n, cm) {
 
 trtvf <- function(tv, cm) {
   if (length(tv) == 1) {
-    tmp <- as.numeric(1 / cm * t(tv) %*% tv)
+    tmp <- as.numeric(1 / cm * tv * tv)
   } else {
     tmp <- as.numeric(t(tv) %*% chol2inv(chol(cm)) %*% tv)
   }
@@ -481,18 +481,19 @@ swtrtsimu <- function(snpn, cmg, cm, ACstatm, maxcn, cutoff.thv, cgwasenv) {
 
 swtrt <- function(tm, cm, cutoff.thv) {
   resv <- matrix(NA, nrow(tm), length(cutoff.thv)+1)
-  nresv <- ncol(resv)-1
-  fnresv <- ncol(resv)
+  nresv <- length(cutoff.thv)
+  fnresv <- length(cutoff.thv) + 1
   for(i in 1:nrow(tm)) {
     tv <- tm[i,]
     tv2 <- tv^2
     cm.tmp <- cm
-    rid <- which(tv2>cutoff.thv[1])
-    if(length(rid)==0) {
+    rid <- tv2 > cutoff.thv[1]
+    ridN <- sum(rid)
+    if(ridN == 0) {
       resv[i, 1:nresv] <- NA
       resv[i, fnresv] <- pchisq(max(tv2), 1, lower.tail=F)
       next
-    } else if(length(rid)==length(tv)) {
+    } else if(ridN==length(tv)) {
       resv[i, 1] <- trtvf(tv, cm.tmp)
     } else {
       tv <- tv[rid]
@@ -501,11 +502,12 @@ swtrt <- function(tm, cm, cutoff.thv) {
       resv[i, 1] <- trtvf(tv, cm.tmp)
     }
     for(j in 2:length(cutoff.thv)) {
-      rid <- which(tv2>cutoff.thv[j])
-      if(length(rid)==0) {
+      rid <- tv2 > cutoff.thv[j]
+      ridN <- sum(rid)
+      if(ridN == 0) {
         resv[i, j:nresv] <- NA
         break
-      } else if(length(rid)==length(tv)) {
+      } else if(ridN==length(tv)) {
         resv[i, j] <- resv[i, j-1]
       } else {
         tv <- tv[rid]
@@ -648,6 +650,7 @@ tpcor2 <- function(v, md){
 }
 
 nullcorrection <- function(isimup, nam, cgwasenv) {
+  options(warn=-1) # turn off warning temporarily
   sn <- cgwasenv$.SIMUL_N * cgwasenv$.SIMUL_SNP_N
   rsn <- sn/cgwasenv$.IND_SNP_N
   swwv <- isimup[order(isimup)]
@@ -744,6 +747,7 @@ nullcorrection <- function(isimup, nam, cgwasenv) {
   lines(c(-log10(qbeta(0.5, cgwasenv$.IND_SNP_N+1, 1)), -log10(qbeta(0.5, 1, cgwasenv$.IND_SNP_N+1))), c(-log10(qbeta(0.5, cgwasenv$.IND_SNP_N+1, 1)), -log10(qbeta(0.5, 1, cgwasenv$.IND_SNP_N+1))), col="black")
   dev.off()
 
+  options(warn=0) # turn on warning
   return(md)
 }
 

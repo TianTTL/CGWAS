@@ -250,7 +250,7 @@ step3 <- function(cgwasenv) {
       did <- which(c(een, esn, ean)==max(c(een, esn, ean)))[1]
     }
 
-    if((c(een, esn, ean)[did]<max(c(gen*cgwasenv$.MIN_EbiCo_POWER, ewn*cgwasenv$.MIN_EbiCo_POWER)))&(abs(cordatm[mtarid, 4])<cgwasenv$.HIGH_CORR_RES)) {
+    if((c(een, esn, ean)[did]<max(c(gen*cgwasenv$.MIN_EbiCo_POWER_INC, ewn*cgwasenv$.MIN_EbiCo_POWER_INC)))&(abs(cordatm[mtarid, 4])<cgwasenv$.HIGH_CORR_RES)) {
       print(paste0("Decision -> do not combine"))
       print("")
       bkcordatm <- rbind(bkcordatm, cordatm[mtarid,])
