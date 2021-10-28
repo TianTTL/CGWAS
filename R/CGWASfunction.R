@@ -1,5 +1,9 @@
 # Statistic Summary Extraction
 step1 <- function(cgwasenv) {
+  if (cgwasenv$.TRAIT_NUM <= 1)  {
+    stop("Error: Traits number must larger than 1.")
+  } # check equality among all element in snp.N
+
   Sepblock <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM)
   cl <- makeCluster(Sepblock)
   registerDoParallel(cl)
@@ -305,6 +309,8 @@ step3 <- function(cgwasenv) {
 
     logfm <- rbind(logfm, c(rn-1, selidv, newname, c("AEC", "SEC", "SSC")[did], TRUE, signif(c(cordatm[mtarid, c(4, 1, 2, 6, 7, 8, 10)], gen1, gen2, gen, geon, x2m, cofm[,1], cofm[,2], cofm[,3], een, esn, ean, ewn, jee, jes, jea, jew, jee1, jeeo, jee2, jes1, jeso, jes2, jea1, jeao, jea2, jew1, jewo, jew2), 7), round(c(mse, newmse)), signif(bofv, 7)))
 
+    if (nrow(coridm) < 2) break
+
     selid1 <- which(TNm[,1]==selidv[1])
     selid2 <- which(TNm[,1]==selidv[2])
     TNm[selid1,] <- NA
@@ -312,7 +318,10 @@ step3 <- function(cgwasenv) {
     newcordatm <- foreach(i=which(!is.na(TNm[,1])), .combine="rbind", .inorder=T) %dopar%
                     CorE.ebico(i, newt, TNm, x2m, did, ranidlist, cgwasenv)
     newcoridm <- cbind(na.omit(TNm)[,1], newname)
-    deleteid <- union(union(union(which(coridm[,1]==selidv[1]), which(coridm[,1]==selidv[2])), which(coridm[,2]==selidv[1])), which(coridm[,2]==selidv[2]))
+    deleteid <- union(union(union(
+                                  which(coridm[,1]==selidv[1]), which(coridm[,1]==selidv[2])),
+                            which(coridm[,2]==selidv[1])),
+                      which(coridm[,2]==selidv[2]))
     coridm <- coridm[-deleteid,]
     cordatm <- cordatm[-deleteid,]
 
@@ -385,7 +394,17 @@ step3 <- function(cgwasenv) {
     }
   }
 
-  colnames(logfm) <- c("Round", "Trait1", "Trait2", "Newtrait", "CovType", "IFcom", colnames(cordatm)[c(4, 1, 2, 6, 7, 8, 10)], "SSNPN1", "SSNPN2", "SSNPNall", "SSNPNcom", "meanX21", "meanX22", "meanX23", "AECtf1", "AECtf2", "SECtf1", "SECtf2", "SSCtf1", "SSCtf2", "SSNPAEC", "SSNPSEC", "SSNPSSC", "SSNPWD", "SSNPAECall", "SSNPSECall", "SSNPSSCall", "SSNPWDall", "SSNPAECN1", "SSNPAECcom", "SSNPAECN2", "SSNPSECN1", "SSNPSECcom", "SSNPSECN2", "SSNPSSCN1", "SSNPSSCcom", "SSNPSSCN2", "SSNPWDN1", "SSNPWDcom", "SSNPWDN2", "Ess1", "Ess2", "EssNew", "bf1", "bf2")
+  colnames(logfm) <- c("Round", "Trait1", "Trait2", "Newtrait", "CovType", "IFcom",
+                       colnames(cordatm)[c(4, 1, 2, 6, 7, 8, 10)],
+                       "SSNPN1", "SSNPN2", "SSNPNall", "SSNPNcom",
+                       "meanX21", "meanX22", "meanX23",
+                       "AECtf1", "AECtf2", "SECtf1", "SECtf2", "SSCtf1", "SSCtf2",
+                       "SSNPAEC", "SSNPSEC", "SSNPSSC", "SSNPWD",
+                       "SSNPAECall", "SSNPSECall", "SSNPSSCall", "SSNPWDall",
+                       "SSNPAECN1", "SSNPAECcom", "SSNPAECN2", "SSNPSECN1",
+                       "SSNPSECcom", "SSNPSECN2", "SSNPSSCN1", "SSNPSSCcom",
+                       "SSNPSSCN2", "SSNPWDN1", "SSNPWDcom", "SSNPWDN2",
+                       "Ess1", "Ess2", "EssNew", "bf1", "bf2")
 
   write.table(cbind(TNm, compm, signif(bfm, 7), signif(tfm, 7), cdm, rnm),
               file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, "ACEffect.txt"),
