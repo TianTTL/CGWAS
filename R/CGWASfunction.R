@@ -548,6 +548,9 @@ step4 <- function(cgwasenv) {
   gtp[order(gtp)] <- gtp[order(gtp)] * ct
   gtp[gtp>1] <- 1
 
+  ntp[ntp <= 0] <- max(ntp, rm.na = T)
+  otp[otp <= 0] <- max(otp, rm.na = T)
+  gtp[gtp <= 0] <- max(gtp, rm.na = T)
   pm <- cbind(ntp, otp, gtp)
   data.table::fwrite(as.data.frame(signif(pm, 7)),
                      file.path(cgwasenv$.CGWAS_COLDATA_PATH, "Min.p"),
@@ -586,7 +589,10 @@ step4 <- function(cgwasenv) {
   jpeg(file.path(cgwasenv$.CGWAS_RESULT_PATH, "CGWASminpQQ.jpg"),
        width=3000, height=3000, res=600)
   par(mar=c(3.5, 3.5, 1, 1))
-  plot(NA, xlim=c(0, max(xx)), ylim=c(0, max(c(yyc[1], yyg[1]))), xlab=expression(paste("Expected   ", -Log[10](italic(p)))), ylab=expression(paste("Observed   ", -Log[10](italic(p)))), mgp=c(2, 0.7, 0), las=1, cex.axis=0.85, tck=-0.015)
+  plot(NA, xlim=c(0, max(xx)), ylim=c(0, max(c(yyc[1], yyg[1]))),
+       xlab=expression(paste("Expected   ", -Log[10](italic(p)))),
+       ylab=expression(paste("Observed   ", -Log[10](italic(p)))),
+       mgp=c(2, 0.7, 0), las=1, cex.axis=0.85, tck=-0.015)
   points(xx, yyg, pch=20, col="#1161C9", cex=0.6)
   points(xx, yyc, pch=20, col="#FD9001", cex=0.6)
   abline(c(0, 1), lwd=1)
@@ -595,7 +601,10 @@ step4 <- function(cgwasenv) {
   jpeg(file.path(cgwasenv$.CGWAS_RESULT_PATH, "CGWASminpQQEbICoW.jpg"),
        width=3000, height=3000, res=600)
   par(mar=c(3.5, 3.5, 1, 1))
-  plot(NA, xlim=c(0, max(xx)), ylim=c(0, max(c(yyc[1], yyg[1]))), xlab=expression(paste("Expected   ", -Log[10](italic(p)))), ylab=expression(paste("Observed   ", -Log[10](italic(p)))), mgp=c(2, 0.7, 0), las=1, cex.axis=0.85, tck=-0.015)
+  plot(NA, xlim=c(0, max(xx)), ylim=c(0, max(c(yyc[1], yyg[1]))),
+       xlab=expression(paste("Expected   ", -Log[10](italic(p)))),
+       ylab=expression(paste("Observed   ", -Log[10](italic(p)))),
+       mgp=c(2, 0.7, 0), las=1, cex.axis=0.85, tck=-0.015)
   points(xx, yyg, pch=20, col="#1161C9", cex=0.6)
   points(xx, yye, pch=20, col="#C0CD28", cex=0.6)
   points(xx, yyc, pch=20, col="#FD9001", cex=0.6)
@@ -653,7 +662,18 @@ step5 <- function(cgwasenv) {
   lcsm3 <- manhattan(pm[,3], pm[,1], os, ns, lcido, lcidn, fdrv[3], fdrv[1], Sind, newtick)
   dev.off()
 
-  ressum <- rbind(c(length(os), length(os)-length(intersect(os, ss)), rep(length(intersect(os, ss)), 2), length(ss)-length(intersect(os, ss)), length(ss)), c(sum(lcsm1[,1]), as.vector(lcsm1), sum(lcsm1[,2])), c(length(ss), length(ss)-length(intersect(ss, ns)), rep(length(intersect(ss, ns)), 2), length(ns)-length(intersect(ss, ns)), length(ns)), c(sum(lcsm2[,1]), as.vector(lcsm2), sum(lcsm2[,2])), c(length(os), length(os)-length(intersect(os, ns)), rep(length(intersect(os, ns)), 2), length(ns)-length(intersect(os, ns)), length(ns)), c(sum(lcsm3[,1]), as.vector(lcsm3), sum(lcsm3[,2])))
+  ressum <- rbind(c(length(os), length(os)-length(intersect(os, ss)),
+                    rep(length(intersect(os, ss)), 2),
+                    length(ss)-length(intersect(os, ss)),
+                    length(ss)), c(sum(lcsm1[,1]), as.vector(lcsm1), sum(lcsm1[,2])),
+                  c(length(ss), length(ss)-length(intersect(ss, ns)),
+                    rep(length(intersect(ss, ns)), 2),
+                    length(ns)-length(intersect(ss, ns)), length(ns)),
+                  c(sum(lcsm2[,1]), as.vector(lcsm2), sum(lcsm2[,2])),
+                  c(length(os), length(os)-length(intersect(os, ns)),
+                    rep(length(intersect(os, ns)), 2),
+                    length(ns)-length(intersect(os, ns)), length(ns)),
+                  c(sum(lcsm3[,1]), as.vector(lcsm3), sum(lcsm3[,2])))
 
   tableid <- union(union(ns, ss), os)
   tableid <- tableid[order(tableid)]
