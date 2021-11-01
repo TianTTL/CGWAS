@@ -605,12 +605,13 @@ minv <- function(tm) {
 }
 
 calnna <- function(a, ppn) {
-  b <- a[order(a)]
-  tq <- sum(!is.na(b))
-  return(log(1 - mean(ppn[c(floor(tq * 0.05),
-                            ceiling(tq * 0.05))]),
-             1 - mean(b[c(floor(tq * 0.05),
-                          ceiling(tq * 0.05))])))
+  a <- a[order(a)]
+  tq <- sum(!is.na(a))
+  tq005 <- tq * 0.05
+  return(log(1 - mean(ppn[c(floor(tq005),
+                            ceiling(tq005))]),
+             1 - mean(a[c(floor(tq005),
+                          ceiling(tq005))])))
 }
 
 tpcor.m <- function(m, efn) {
@@ -794,13 +795,6 @@ ptc.summay <- function(bgm, stm) {
 
 ttp <- function(tm) {
   return(pchisq(tm^2, 1, lower.tail=F))
-}
-
-calnna.summary <- function(a, ppn) {
-  a <- a[order(a)]
-  tq <- sum(!is.na(a))
-  return(log(1-mean(ppn[c(floor(tq*0.05), ceiling(tq*0.05))]),
-             1-mean(a[c(floor(tq*0.05), ceiling(tq*0.05))])))
 }
 
 tpcor.summary <- function(v, efn) {

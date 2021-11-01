@@ -13,11 +13,13 @@ step1 <- function(cgwasenv) {
   naid <- unique(foreach(i = seq_len(cgwasenv$.TRAIT_NUM), .combine="c", .inorder=F) %dopar%
                    StatE1(i, cgwasenv))
   if (cgwasenv$.MAF_FILE_EXIST) {
-    mafv <- as.data.frame(data.table::fread(cgwasenv$.MAF_FILE_PATH, header=F, stringsAsFactors=F))[,1]
+    mafv <- as.data.frame(data.table::fread(cgwasenv$.MAF_FILE_PATH,
+                                            header=F, stringsAsFactors=F,
+                                            nThread = cgwasenv$.PARAL_NUM))[,1]
     if (length(naid) != 0) {
       mafv <- mafv[-naid]
     }
-    data.table::fwrite(mafv, file.path(cgwasenv$.CGWAS_COLDATA_PATH, "MAF"), row.names=F, col.names=F, quote=F)
+    write.table(mafv, file.path(cgwasenv$.CGWAS_COLDATA_PATH, "MAF"), row.names=F, col.names=F, quote=F)
   }
   snp.N <- foreach(i = seq_len(cgwasenv$.TRAIT_NUM), .combine="c", .inorder = F) %dopar%
     StatE2(i, naid, cgwasenv)
@@ -48,7 +50,8 @@ step2 <- function(cgwasenv) {
   # system.time({
   for(i in seq_len(cgwasenv$.TRAIT_NUM)) {
     tm <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[i], ".stat")),
-                                      header=F))[,1]
+                                      header = F,
+                                      nThread = cgwasenv$.PARAL_NUM))[,1]
     tm2 <- tm^2
     resinfm[i,1] <- mean(tm2)
     resinfm[i,2] <- median(tm2)/qchisq(0.5, 1)
@@ -107,7 +110,11 @@ step2 <- function(cgwasenv) {
   # })
   tresm <- signif(tresm, 7)
 
-  corm <- cbind(cgwasenv$.TRAIT_NAME[pairma[,1]], cgwasenv$.TRAIT_NAME[pairma[,2]], signif(resinfm[pairma[,1], 4]-1, 7), signif(resinfm[pairma[,2], 4]-1, 7), tresm)
+  corm <- cbind(cgwasenv$.TRAIT_NAME[pairma[,1]],
+                cgwasenv$.TRAIT_NAME[pairma[,2]],
+                signif(resinfm[pairma[,1], 4]-1, 7),
+                signif(resinfm[pairma[,2], 4]-1, 7),
+                tresm)
 
   colnames(corm) <- c("Trait1", "Trait2", "T1Eff", "T2Eff", "StatCor", "BgCor", "EffCov", "EffCor", "T1sEff", "T2sEff", "EffsCov", "EffsCor")
   write.table(corm,
@@ -132,7 +139,8 @@ step3 <- function(cgwasenv) {
 
   if(cgwasenv$.MAF_FILE_EXIST) {
     mafv <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "MAF"),
-                                            header=F,stringsAsFactors=F))[,1]
+                                            header=F, stringsAsFactors=F,
+                                            nThread = cgwasenv$.PARAL_NUM))[,1]
   }
 
   corm.tmp <- read.table(file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, "BCCorrelationStat.txt"),
@@ -143,7 +151,8 @@ step3 <- function(cgwasenv) {
   localsep <- 1e5
 
   n <- cgwasenv$.TRAIT_NUM+1
-  AllEff <- as.numeric(c(cordatm[-(1:(n-2))^2/2+(n-0.5)*(1:(n-2))-n+2, 1], cordatm[-(n-2)^2/2+(n-0.5)*(n-2)-n+2, 2]))
+  AllEff <- as.numeric(c(cordatm[-(1:(n-2))^2/2+(n-0.5)*(1:(n-2))-n+2, 1],
+                         cordatm[-(n-2)^2/2+(n-0.5)*(n-2)-n+2, 2]))
   Ess <- unlist(foreach(i = cgwasenv$.TRAIT_NAME, .inorder=T) %dopar%
                   Essfun(i, mafv, cgwasenv))
   TNm <- cbind(data.frame(TraitName = cgwasenv$.TRAIT_NAME, stringsAsFactors=F), AllEff, Ess)
@@ -165,13 +174,18 @@ step3 <- function(cgwasenv) {
     newname <- paste0(selidv[1], "_", selidv[2])
     t2m <- cbind(
                  as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(selidv[1], ".efstat")),
-                                         header=F, stringsAsFactors=F))[,1],
+                                         header=F, stringsAsFactors=F,
+                                         nThread = cgwasenv$.PARAL_NUM))[,1],
                  as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(selidv[2], ".efstat")),
-                                         header=F, stringsAsFactors=F))[,1]
+                                         header=F, stringsAsFactors=F,
+                                         nThread = cgwasenv$.PARAL_NUM))[,1]
            )
     mse <- c(TNm[which(TNm[,1]==selidv[1]), 3], TNm[which(TNm[,1]==selidv[2]), 3])
 
-    ttm <- t2m[which((((t2m %*% solve(matrix(c(1, cordatm[mtarid, 4], cordatm[mtarid, 4], 1), 2)))*t2m) %*% c(1, 1)) > qchisq(0.01, 2, lower.tail=F)),]
+    ttm <- t2m[which((((t2m %*%
+                          solve(matrix(c(1, cordatm[mtarid, 4], cordatm[mtarid, 4], 1), 2))) * t2m) %*%
+                        c(1, 1))
+                     > qchisq(0.01, 2, lower.tail=F)),]
     fm <- ebicocof(cordatm[mtarid,], mse, ttm, thresc)
     cofm <- fm[,1:3]
     temsm <- (ttm %*% cofm)^2
@@ -277,9 +291,11 @@ step3 <- function(cgwasenv) {
 
     b2m <- cbind(
                  as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(selidv[1], ".beta")),
-                                         header=F, stringsAsFactors=F))[,1],
+                                         header=F, stringsAsFactors=F,
+                                         nThread = cgwasenv$.PARAL_NUM))[,1],
                  as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(selidv[2], ".beta")),
-                                         header=F, stringsAsFactors=F))[,1]
+                                         header=F, stringsAsFactors=F,
+                                         nThread = cgwasenv$.PARAL_NUM))[,1]
            )
     bofv <- bofm[,did]*sqrt(mse)/sum((bofm[,did]*dofm[,did])*sqrt(mse))
     newb <- b2m %*% bofv
@@ -432,7 +448,8 @@ step4 <- function(cgwasenv) {
   localsep <- 5e4
 
   Sind <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "SnpIndex"),
-                                          header=T))
+                                          header=T,
+                                          nThread = cgwasenv$.PARAL_NUM))
   ACstatm <- read.table(file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, "ACEffect.txt"),
                         header=T,stringsAsFactors=F)
   maxcn <- (ncol(ACstatm)-2)/5
@@ -456,27 +473,31 @@ step4 <- function(cgwasenv) {
                      .inorder = F,
                      .combine = "rbind") %dopar%
                swtrtsimu(cgwasenv$.SIMUL_SNP_N, posmg[[1]], posm[[1]], ACstatm, maxcn, cutoff.thv, cgwasenv)
+  clusterEvalQ(cl, gc()) # collect garbage for each thread
   print("time consuming of swtrtsimu: "); print(difftime(Sys.time(), ts)) # test
+  stopCluster(cl)
+  gc()
 
   ppn <- ppoints(cgwasenv$.SIMUL_N * cgwasenv$.SIMUL_SNP_N)
   ts <- Sys.time() # test
-  trtc <- unlist(foreach(i = iter(simumin, by="col", chunksize = 1), .inorder=T) %dopar%
-                   calnna(i, ppn))
+  trtc <- unlist(apply(simumin, 2, function(x) calnna(x, ppn)))
+  gc()
   print("time consuming of calnna: "); print(difftime(Sys.time(), ts)) # test
 
   md1 <- nullcorrection(simumin[,ncol(simumin)], "EbICoW", cgwasenv)
   pop1 <- sum(simumin[,ncol(simumin)]<5e-8)/nrow(simumin)
 
+  cl <- makeCluster(4) # 4 threads is enough
+  registerDoParallel(cl)
   ts <- Sys.time() # test
-  simumin <- foreach(i = iter(simumin, by="row", chunksize = localsep),
-                     .inorder = T,
-                     .combine = "rbind") %dopar%
-               tpcor.m(i, trtc)
-  print("time consuming of tpcor: "); print(difftime(Sys.time(), ts)) # test
+  simumin1 <- foreach(i = iter(simumin, by="row", chunksize = localsep),
+                     .inorder = T) %dopar%
+                tpcor.m(i, trtc)
 
-  ts <- Sys.time() # test
-  sww <- appmin(simumin)
-  print("time consuming of appmin: "); print(difftime(Sys.time(), ts)) # test
+  print("time consuming of tpcor: "); print(difftime(Sys.time(), ts)) # test
+  stopCluster(cl)
+  sww <- unlist(lapply(simumin1, appmin))
+  rm(simumin); rm(simumin1); gc()
 
   ts <- Sys.time() # test
   md <- nullcorrection(sww, "CGWAS", cgwasenv)
@@ -490,10 +511,9 @@ step4 <- function(cgwasenv) {
                ncol=3, byrow=T)
   print("time consuming of calc MT: "); print(difftime(Sys.time(), ts)) # test
 
-  rm(simumin); gc()
-
+  cl <- makeCluster(cgwanenv$.PARAL_NUM)
   compn <- as.character(ACstatm[,1])
-  tm <- foreach(i=compn, .combine="cbind", .inorder=T) %dopar%
+  tm <- foreach(i = compn, .combine="cbind", .inorder=T) %dopar%
           as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(i, ".efstat")),
                                                       header = F, stringsAsFactors = F, nThread = 1))[,1]
   ts <- Sys.time() # test
@@ -501,6 +521,7 @@ step4 <- function(cgwasenv) {
                  .combine="rbind",
                  .inorder=T) %dopar%
            swtrt(i, posm[[1]], cutoff.thv)
+  clusterEvalQ(cl, gc()) # collect garbage for each thread
   print("time consuming of swtrt: "); print(difftime(Sys.time(), ts)) # test
 
   otp <- owp[, ncol(owp)]
@@ -514,6 +535,7 @@ step4 <- function(cgwasenv) {
                  .inorder = T,
                  .combine = "rbind") %dopar%
            tpcor.m(i, trtc)
+  clusterEvalQ(cl, gc()) # collect garbage for each thread
   print("time consuming of tpcor: "); print(difftime(Sys.time(), ts)) # test
 
   data.table::fwrite(as.data.frame(signif(owp, 7)),
@@ -620,17 +642,21 @@ step5 <- function(cgwasenv) {
   i <- 1 # assign parallel control variants
 
   Sind <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "SnpIndex"),
-                                          header=T))
+                                          header = T,
+                                          nThread = cgwasenv$.PARAL_NUM))
   newtick <- manpos(Sind)
   Sind <- cbind(Sind, newtick[[1]])
   newtick <- newtick[[2]]
 
   if(cgwasenv$.MAF_FILE_EXIST) {
     mafv <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "MAF"),
-                                            header=F,stringsAsFactors=F))[,1]
+                                            header = F, stringsAsFactors = F,
+                                            nThread = cgwasenv$.PARAL_NUM))[,1]
   }
 
-  pm <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "Min.p"), header=F))
+  pm <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "Min.p"),
+                                    header = F,
+                                    nThread = cgwasenv$.PARAL_NUM))
 
   # fdrv <- apply(pm, 2, ffdrv, fv=fdr, Sind)
 
@@ -773,7 +799,9 @@ step5 <- function(cgwasenv) {
   logm <- read.table(file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, "EBICOlog.txt"),
                      header=T,stringsAsFactors=F)
 
-  swpm <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "SWaT.p"), header=F))
+  swpm <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, "SWaT.p"),
+                                      header=F,
+                                      nThread = cgwasenv$.PARAL_NUM))
   swtable <- cbind(Sind[tableid, 1:3], tableid, swpm[tableid,])
   colnames(swtable) <- c("CHR", "BP", "SNP", "ID", paste0("SWp", 1:ncol(swpm)))
   write.csv(swtable,

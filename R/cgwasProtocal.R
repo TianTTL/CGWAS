@@ -8,6 +8,11 @@
 #' the absence of any effect on all traits, and the alternative is that its
 #' effect deviates from 0 for at least one trait.
 #'
+#' To estimate the effect of each SNP more accurately, several data organization
+#' standard should be noticed. (1) The effect size in each GWAS should be in the
+#' same scale. (2) In one GWAS, the minimum samples size of each SNP should
+#' be no less than 60% of the median.
+#'
 #' C-GWAS integrates two different statistical methods to ensure the optimal
 #' power under various and complex scenarios while keeping a stable study-wide
 #' type-I error rate. The first method uses an iterative effect based inversed
