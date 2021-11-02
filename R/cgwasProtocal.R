@@ -130,6 +130,10 @@ cgwas <- function(gwasFilePath,
   # hide
   cgwasenv$.TRAIT_NUM <- length(cgwasenv$.TRAIT_NAME)
 
+  # SNP numbers.
+  # hide
+  cgwasenv$.SNP_N <- length(readLines(cgwasenv$.GWAS_FILE_PATH[1])) - 1
+
   # Independent SNP number.
   # export
   cgwasenv$.IND_SNP_N <- indSNPN

@@ -4,8 +4,8 @@ step1 <- function(cgwasenv) {
     stop("Error: Traits number must larger than 1.")
   } # check equality among all element in snp.N
 
-  Sepblock <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM)
-  cl <- makeCluster(Sepblock)
+  threadNCur <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM)
+  cl <- makeCluster(threadNCur)
   registerDoParallel(cl)
   # globalVariables(c("i"))
   i <- 1 # assign parallel control variants
@@ -15,7 +15,7 @@ step1 <- function(cgwasenv) {
   if (cgwasenv$.MAF_FILE_EXIST) {
     mafv <- as.data.frame(data.table::fread(cgwasenv$.MAF_FILE_PATH,
                                             header=F, stringsAsFactors=F,
-                                            nThread = cgwasenv$.PARAL_NUM))[,1]
+                                            nThread = 1))[,1]
     if (length(naid) != 0) {
       mafv <- mafv[-naid]
     }
@@ -39,15 +39,15 @@ step2 <- function(cgwasenv) {
   inseq <- ppoints(2000)
   ranidlist <- ridl.ICE(repn = 1, minsnpn = 1e5, cgwasenv)
 
-  Sepblock <- min(cgwasenv$.PARAL_NUM, nrow(ranidlist))
-  cl <- makeCluster(Sepblock)
+  threadNCur <- min(cgwasenv$.PARAL_NUM, nrow(ranidlist))
+  cl <- makeCluster(threadNCur)
   registerDoParallel(cl)
   # globalVariables(c('i', 'j'))
   i <- j <- 1 # assign parallel control variants
 
   resinfm <- matrix(NA, cgwasenv$.TRAIT_NUM , 5)
 
-  # system.time({
+  system.time({
   for(i in seq_len(cgwasenv$.TRAIT_NUM)) {
     tm <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[i], ".stat")),
                                       header = F,
@@ -82,7 +82,7 @@ step2 <- function(cgwasenv) {
                        file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[i], ".efstat")),
                        row.names = F, col.names = F, quote = F)
   }
-  # })
+  })
 
   colnames(resinfm) <- c("MeanX2", "Lambda", "EstInf", "ReaEff", "Eprop")
   write.table(cbind(TraitName = cgwasenv$.TRAIT_NAME, signif(resinfm, 7)),
@@ -92,22 +92,22 @@ step2 <- function(cgwasenv) {
   stopCluster(cl)
 
   pairma <- t(combn(seq_len(cgwasenv$.TRAIT_NUM), 2))
-  n <- nrow(pairma)
+  pairmaN <- nrow(pairma)
 
-  upnum <- ceiling(n / cgwasenv$.PARAL_NUM)
-  upblock <- ceiling(n / upnum)
+  upnum <- ceiling(pairmaN / cgwasenv$.PARAL_NUM)
+  upblock <- ceiling(pairmaN / upnum)
 
-  Sepblock <- min(cgwasenv$.PARAL_NUM, upblock)
+  threadNCur <- min(cgwasenv$.PARAL_NUM, upblock)
 
-  cl <- makeCluster(Sepblock)
+  cl <- makeCluster(threadNCur)
   registerDoParallel(cl)
 
-  # system.time({
+  system.time({
   tresm <- foreach(i = 1:upblock,
                    .combine = "rbind",
                    .inorder=T) %dopar%
-             CorE.ICE(i, upnum, n, pairma, resinfm, ranidlist, cgwasenv)
-  # })
+             CorE.ICE(i, upnum, pairmaN, pairma, resinfm, ranidlist, cgwasenv)
+  })
   tresm <- signif(tresm, 7)
 
   corm <- cbind(cgwasenv$.TRAIT_NAME[pairma[,1]],
@@ -126,8 +126,8 @@ step2 <- function(cgwasenv) {
 
 # EbICo
 step3 <- function(cgwasenv) {
-  Sepblock <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM)
-  cl <- makeCluster(Sepblock)
+  threadNCur <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM)
+  cl <- makeCluster(threadNCur)
   registerDoParallel(cl)
   # globalVariables(c('i'))
   i <- 1 # assign parallel control variants
@@ -473,7 +473,6 @@ step4 <- function(cgwasenv) {
                      .inorder = F,
                      .combine = "rbind") %dopar%
                swtrtsimu(cgwasenv$.SIMUL_SNP_N, posmg[[1]], posm[[1]], ACstatm, maxcn, cutoff.thv, cgwasenv)
-  clusterEvalQ(cl, gc()) # collect garbage for each thread
   print("time consuming of swtrtsimu: "); print(difftime(Sys.time(), ts)) # test
   stopCluster(cl)
   gc()
@@ -521,7 +520,6 @@ step4 <- function(cgwasenv) {
                  .combine="rbind",
                  .inorder=T) %dopar%
            swtrt(i, posm[[1]], cutoff.thv)
-  clusterEvalQ(cl, gc()) # collect garbage for each thread
   print("time consuming of swtrt: "); print(difftime(Sys.time(), ts)) # test
 
   otp <- owp[, ncol(owp)]
@@ -535,7 +533,6 @@ step4 <- function(cgwasenv) {
                  .inorder = T,
                  .combine = "rbind") %dopar%
            tpcor.m(i, trtc)
-  clusterEvalQ(cl, gc()) # collect garbage for each thread
   print("time consuming of tpcor: "); print(difftime(Sys.time(), ts)) # test
 
   data.table::fwrite(as.data.frame(signif(owp, 7)),

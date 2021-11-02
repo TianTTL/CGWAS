@@ -107,7 +107,7 @@ calinf <- function(tm2, inseq, mp) {
   return(c(lamv, propv))
 }
 
-Coresti.ICE <- function(t1, t2, id1, id2, resinfm, ranidlist, cgwasenv) {
+CorEsti.ICE <- function(t1, t2, id1, id2, resinfm, ranidlist, cgwasenv) {
   mt2 <- resinfm[c(id1, id2), 4]
   ax1 <- t1^2
   ax2 <- t2^2
@@ -188,10 +188,10 @@ Coresti.ICE <- function(t1, t2, id1, id2, resinfm, ranidlist, cgwasenv) {
   return(c(mxx/sqrt(prod(mt2)), newp, efc, efcr, meff, mcef, mcefr))
 }
 
-CorE.ICE <- function(pgpid, upnum, n, pairma, resinfm, ranidlist, cgwasenv) {
+CorE.ICE <- function(blkId, upnum, pairmaN, pairma, resinfm, ranidlist, cgwasenv) {
   corm <- c()
   tempsv <- c(0, 0)
-  for(i in (upnum*(pgpid-1)+1):min(upnum*pgpid, n)) {
+  for(i in (upnum*(blkId-1)+1) : min(upnum*blkId, pairmaN)) {
     if(pairma[i, 1]!=tempsv[1]) {
       t1 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[pairma[i, 1]], ".efstat")),
                                         header=F, nThread = 1))[,1]
@@ -202,30 +202,20 @@ CorE.ICE <- function(pgpid, upnum, n, pairma, resinfm, ranidlist, cgwasenv) {
                                         header=F, nThread = 1))[,1]
       tempsv[2] <- pairma[i,2]
     }
-    corm <- rbind(corm, Coresti.ICE(t1, t2, pairma[i, 1], pairma[i, 2], resinfm, ranidlist, cgwasenv))
+    corm <- rbind(corm, CorEsti.ICE(t1, t2, pairma[i, 1], pairma[i, 2], resinfm, ranidlist, cgwasenv))
   }
   return(corm)
 }
 
 ridl.ICE <- function(repn, minsnpn, cgwasenv) {
-  tm <- (as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[1], ".stat")),
-                                     header=F, nThread = 1))[,1])^2
-  bn <- 1
-  while((length(tm)/bn)>minsnpn) {
-    bn <- bn+1
-  }
-  sl <- floor(length(tm)/bn)
-  idm <- matrix(NA, repn*bn, sl)
-  for(i in 1:repn) {
-    idv <- sample(1:length(tm), length(tm))
-    for(ii in 1:bn) {
-      idm[(i-1)*bn+ii,] <- seq(ii, length(tm), bn)[1:sl]
-    }
-  }
+  bn <- ceiling(cgwasenv$.SNP_N / minsnpn)
+  sl <- floor(cgwasenv$.SNP_N / bn)
+
+  idm <- matrix(seq_len(repn*bn*sl), repn * bn, sl, byrow = F)
   return(idm)
 }
 
-Coresti.ebico <- function(t1, t2, id1, id2, ranidlist, cgwasenv) {
+CorEsti.ebico <- function(t1, t2, id1, id2, ranidlist, cgwasenv) {
   mt2 <- as.numeric(c(id1, id2)) + 1
   ax1 <- t1^2
   ax2 <- t2^2
@@ -291,7 +281,7 @@ Coresti.ebico <- function(t1, t2, id1, id2, ranidlist, cgwasenv) {
     if((meff[1]==0)&(meff[2]==0)){
       meff[1:2] <- 1e-6
     }
-  } else if(prod(meff)!=0){
+  } else if(prod(meff)!=0) {
     mcefr <- mcef/sqrt(prod(meff))
     if(mcefr>1){
       mcefr <- 1
@@ -310,7 +300,7 @@ CorE.ebico <- function(traitid, newt, TNm, x2m, did, ranidlist, cgwasenv) {
   t1 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH,
                                               paste0(TNm[traitid, 1], ".efstat")),
                                     header=F, nThread = 1))[,1]
-  corm <- Coresti.ebico(t1, newt, TNm[traitid, 2], x2m[did], ranidlist, cgwasenv)
+  corm <- CorEsti.ebico(t1, newt, TNm[traitid, 2], x2m[did], ranidlist, cgwasenv)
   return(corm)
 }
 
@@ -403,20 +393,10 @@ Essfun <- function(tid, mafv, cgwasenv) {
 }
 
 ridl.ebico <- function(repn, minsnpn, cgwasenv) {
-  tm <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[1], ".efstat")),
-                                         header=F, stringsAsFactors=F, nThread = 1))[,1]
-  bn <- 1
-  while((length(tm)/bn)>minsnpn) {
-    bn <- bn+1
-  }
-  sl <- floor(length(tm)/bn)
-  idm <- matrix(NA, repn*bn, sl)
-  for(i in 1:repn) {
-    idv <- sample(1:length(tm), length(tm))
-    for(ii in 1:bn) {
-      idm[(i-1)*bn+ii,] <- seq(ii, length(tm), bn)[1:sl]
-    }
-  }
+  bn <- ceiling(cgwasenv$.SNP_N / minsnpn)
+  sl <- floor(cgwasenv$.SNP_N / bn)
+
+  idm <- matrix(seq_len(repn*bn*sl), repn * bn, sl, byrow = F)
   return(idm)
 }
 
