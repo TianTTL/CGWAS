@@ -70,61 +70,49 @@
 #' cgwas(gwasFilePath, assocColInx, outputPath,
 #'       traitName = traitName, simulTime = simulTime)
 #'
-#' @export
+#' @expose
 cgwas <- function(gwasFilePath,
                   assocColInx,
-                  outputPath,
+                  traitName = basename(gwasFilePath[1]),
+                  exNa = TRUE,
                   mafFilePath = NULL,
-                  threadN = ceiling(parallel::detectCores() / 2),
-                  traitName = NULL,
+                  outputPath,
+                  keepIEb = FALSE,
+                  threadN = ceiling(parallel::detectCores()/2),
                   indSNPN = 1e6,
-                  simulTime = NULL,
-                  ebicoPwrInc = 1.1,
-                  sampleNInc = 0.7) {
+                  simulDep = 100,
+                  pStudy = 0.05/indSNPN,
+                  pSugst = 1/indSNPN,
+                  pMain = 3/indSNPN,
+                  ebicoPwrInc = 1,
+                  minCorDiff = 0.05,
+                  hiCorRestc = 0.5,
+                  sampleNInc = 0.5,
+                  twtStCo = 10^(seq(0,1-ceiling(log10(indSNPN)),-1/3))[-1],
+                  LoInrP = c(0.05,0.001),
+                  LoSpanV = c(0.03,0.1,0.75),
+                  lociInr = 2.5e5) {
 
-  print("---- C-GWAS version 1.8.2 start ----")
+  cat("
+   ______       ______ _       __ ___    _____
+  / ____/      / ____/| |     / //   |  / ___/
+ / /   ______ / / __  | | /| / // /| |  \\__ \\
+/ /___/_____// /_/ /  | |/ |/ // ___ | ___/ /
+\\____/       \\____/   |__/|__//_/  |_|/____/      version 1.9.1")
 
   cgwasenv <- list()
 
   # A string list of path to GWASs summary data files.
-  # export
+  # expose
   cgwasenv$.GWAS_FILE_PATH <- gwasFilePath
 
   # Column number of SNP index (CHR & BP & SNP) and association data (BETA & P)
-  # export
+  # expose
   cgwasenv$.ASSOC_COLUMN_INDEX <- assocColInx
 
-  # Path to allele frequency file.
-  # export
-  cgwasenv$.MAF_FILE_PATH <- mafFilePath
-
-  # whether MAF file exist.
-  # hide
-  cgwasenv$.MAF_FILE_EXIST <- !is.null(mafFilePath)
-
-  # The number of threads for parallel computing.
-  # export
-  chk <- Sys.getenv("_R_CHECK_LIMIT_CORES_", "")
-
-  if (nzchar(chk) && chk == "TRUE") {
-    # use 2 cores in CRAN/Travis/AppVeyor
-    cgwasenv$.PARAL_NUM <- min(parallel::detectCores() - 1, 2)
-  } else {
-    cgwasenv$.PARAL_NUM <- min(parallel::detectCores() - 1, threadN)
-  }
-
-
-  # Result output directory.
-  # export
-  cgwasenv$.CGWAS_DIR <- outputPath
-
   # A list of trait names.
-  # export
-  if (is.null(traitName)) {
-    cgwasenv$.TRAIT_NAME <- basename(gwasFilePath)
-  } else {
-    cgwasenv$.TRAIT_NAME <- traitName
-  }
+  # expose
+  cgwasenv$.TRAIT_NAME <- traitName
 
   # Trait numbers.
   # hide
@@ -134,103 +122,221 @@ cgwas <- function(gwasFilePath,
   # hide
   cgwasenv$.SNP_N <- length(readLines(cgwasenv$.GWAS_FILE_PATH[1])) - 1
 
+  # Exclude NA (exclude SNP with NA in at least one GWAS, otherwise replace NA with BETA=0 and P=1)
+  # expose
+  cgwasenv$.EXCLUDE_NA = exNa
+
+  # Path to allele frequency file.
+  # expose
+  cgwasenv$.MAF_FILE_PATH <- mafFilePath
+
+  # whether MAF file exist.
+  # hide
+  cgwasenv$.MAF_FILE_EXIST <- !is.null(mafFilePath)
+
+  # Result output directory.
+  # expose
+  cgwasenv$.CGWAS_DIR <- outputPath
+
+  # Keep i-EbICoW output (keep BETA and STAT of all i-EbICoW combinations or drop them)
+  # expose
+  cgwasenv$.KEEP_EbICoW = keepIEb
+
+  # The number of threads for parallel computing.
+  # expose
+  chk <- Sys.getenv("_R_CHECK_LIMIT_CORES_", "")
+  if (nzchar(chk) && chk == "TRUE") {
+    # use 2 cores in CRAN/Travis/AppVeyor
+    cgwasenv$.PARAL_NUM <- min(parallel::detectCores() - 1, 2)
+  } else {
+    cgwasenv$.PARAL_NUM <- min(parallel::detectCores() - 1, threadN)
+  }
+
   # Independent SNP number.
-  # export
-  cgwasenv$.IND_SNP_N <- indSNPN
+  # integer, >=1e4, multiple of 500, default 1e6
+  # expose
+  if (indSNPN < 1e4 | indSNPN %% 500 != 0) {
+    return(message("ERROR: parament indSNP invalid!"))
+  } else {
+    cgwasenv$.IND_SNP_N <- indSNPN
+  }
 
-  # FDR test set.
-  # hide
-  cgwasenv$.FDR_SET <- c(seq(0.0001, 0.0009, 0.0001), seq(0.001, 0.05, 0.001))
-
-  # main effect threshold
-  # hide
-  cgwasenv$.P_THRD <- 1 / cgwasenv$.IND_SNP_N
-
-  # minimum EbICo power increase ratio.
-  # export
-  cgwasenv$.MIN_EbiCo_POWER_INC <- ebicoPwrInc
-
-  # minimum correlation difference.
-  # hide
-  cgwasenv$.MIN_CORR_DIFF <- 0.05
-
-  # high correlation restriction (squared).
-  # hide
-  cgwasenv$.HIGH_CORR2_RES <- 0.7
-
-  # high correlation restriction.
-  # hide
-  cgwasenv$.HIGH_CORR_RES <- sqrt(cgwasenv$.HIGH_CORR2_RES)
-
-  # Equivalent sample size increase ratio.
-  # export
-  cgwasenv$.SAMPLE_SIZE_INC <- sampleNInc
-
-  # SWaT stratification cutoff.
-  # hide
-  cgwasenv$.SWaT_STRAT_CUT <- 10^(seq(0,-5,-1/3))[-1]
+  # Quantile simulation depth
+  # integer, >=100, multiple of 100, default 100
+  # expose
+  if (simulDep < 100 | simulDep %% 100 != 0) {
+    return(message("ERROR: parament simulDep invalid!"))
+  } else {
+    cgwasenv$.SIMUL_DEP <- simulDep
+  }
 
   # Simulated SNP number.
   # hide
   cgwasenv$.SIMUL_SNP_N <- 5e4
 
   # Number of simulations for multiple testing correction.
-  # export
-  if (is.null(simulTime)) {
-    cgwasenv$.SIMUL_N <- 100 * cgwasenv$.IND_SNP_N / cgwasenv$.SIMUL_SNP_N
+  # hide
+  cgwasenv$.SIMUL_N <- cgwasenv$.SIMUL_DEP * cgwasenv$.IND_SNP_N / cgwasenv$.SIMUL_SNP_N
+
+  # Study-wide significant threshold
+  # >0 & <=5e-6, default 0.05/indSNPN
+  # expose
+  if (pStudy <= 0 | pStudy > 5e-6) {
+    return(message("ERROR: parament pStudy invalid!"))
   } else {
-    cgwasenv$.SIMUL_N <- simulTime
+    cgwasenv$.P_THRD_STUDY <- pStudy
   }
 
-  # LOESS span vector.
-  # hide
-  cgwasenv$.LOESS_SPAN_V <- c(0.03, 0.1, 0.75)
+  # Suggestive significant threshold
+  # >0 & <=1e-4, default 1/indSNPN
+  # expose
+  if (pSugst <= 0 | pSugst > 1e-4) {
+    return(message("ERROR: parament pSugst invalid!"))
+  } else {
+    cgwasenv$.P_THRD_SUGST <- pSugst
+  }
 
-  # LOESS interval p.
-  # hide
-  cgwasenv$.LOESS_INTER_P <- c(0.05, 0.001)
+  # main effect threshold
+  # >=3/1e4, default 3/indSNPN
+  # expose
+  if (pMain < 3/1e4) {
+    return(message("ERROR: parament pMain invalid!"))
+  } else {
+    cgwasenv$.P_MAIN_EFFECT <- pMain
+  }
 
-  # Loci interval.
+  # min EbICoW power increase ratio
+  # >0, default 1
+  # expose
+  if (ebicoPwrInc <= 0) {
+    return(message("ERROR: parament ebicoPwrInc invalid!"))
+  } else {
+    cgwasenv$.MIN_EbICo_POWER_INC <- ebicoPwrInc
+  }
+
+  # min correlation difference
+  # >0, default 0.05
+  # expose
+  if (minCorDiff <= 0) {
+    return(message("ERROR: parament ebicoPwrInc invalid!"))
+  } else {
+    cgwasenv$.MIN_CORR_DIFF <- minCorDiff
+  }
+
+  # high correlation restriction (squared)
+  # >0 & <1, default 0.5
+  # expose
+  if (hiCorRestc <= 0 | hiCorRestc >= 1) {
+    return(message("ERROR: parament hiCorRestc invalid!"))
+  } else {
+    cgwasenv$.HIGH_CORR2_RES <- hiCorRestc
+  }
+
+  # high correlation restriction
   # hide
-  cgwasenv$.LOCI_INTER <- 2.5e5
+  cgwasenv$.HIGH_CORR_RES <- sqrt(cgwasenv$.HIGH_CORR2_RES)
+
+  # Equivalent sample size increase ratio
+  # >0 & <1, default 0.5
+  # expose
+  if (sampleNInc <= 0 | sampleNInc >= 1) {
+    return(message("ERROR: parament sampleNInc invalid!"))
+  } else {
+    cgwasenv$.SAMPLE_SIZE_INC <- sampleNInc
+  }
+
+  # TWT stratification cutoff
+  # >0 & <1, default 10^(seq(0,ceiling(log10(indSNPN))-1,-1/3))[-1]
+  # expose
+  if (min(twtStCo) <= 0 | max(twtStCo) >= 1) {
+    return(message("ERROR: parament twtStCo invalid!"))
+  } else {
+    cgwasenv$.TWT_STRAT_CUT <- twtStCo
+  }
+
+  # LOESS interval p
+  # decreasing order, >=10/indsnpn & <=0.1, default c(0.05,0.001)
+  # expose
+  if (min(LoInrP) < 10/cgwasenv$.IND_SNP_N | max(LoInrP) > 0.1) {
+    return(message("ERROR: parament LoInrP invalid!"))
+  } else {
+    cgwasenv$.LOESS_INTER_P <- sort(LoInrP, decreasing = TRUE)
+  }
+
+  # LOESS span vector
+  # length=length(interp)+1, >0 & <1, default c(0.03,0.1,0.75)
+  # expose
+  if (length(LoSpanV) != length(LoInrP)+1 | min(LoSpanV) <= 0 | max(LoSpanV) >= 1) {
+    return(message("ERROR: parament LoSpanV invalid!"))
+  } else {
+    cgwasenv$.LOESS_SPAN_V <- LoSpanV
+  }
+
+  # Loci interval
+  # integer, >=1e5 & <=1e6, default 2.5e5
+  # expose
+  if (lociInr < 1e5 | lociInr > 1e6) {
+    return(message("ERROR: parament lociInr invalid!"))
+  } else {
+    cgwasenv$.LOCI_INTER <- lociInr
+  }
 
   # create directory of intermediate result
-  cgwasenv$.CGWAS_TEMPDATA_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Tempdata")
-  cgwasenv$.CGWAS_COLDATA_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Tempdata", "Coldata")
+  cgwasenv$.CGWAS_DETAIL_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Details")
+  cgwasenv$.CGWAS_iEbICoW_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Details", "i-EbICoW")
   cgwasenv$.CGWAS_RESULT_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Result")
   dir.create(cgwasenv$.CGWAS_TEMPDATA_PATH, recursive = T, showWarnings = F)
   dir.create(cgwasenv$.CGWAS_COLDATA_PATH, recursive = T, showWarnings = F)
   dir.create(cgwasenv$.CGWAS_RESULT_PATH, recursive = T, showWarnings = F)
 
-  print(cgwasenv)
+  # Send R Output to a File
+  sink(file.path(cgwasenv$.CGWAS_RESULT_PATH, 'cgwas.log'),
+       append=FALSE, split=TRUE)
+  # output basic paramenters
+  paramOutput(cgwasenv)
 
-  # Step1 Statistic Summary Extraction
+  # Step1 Data formating
   ts <- Sys.time()
   step1(cgwasenv)
-  print("Step1 finished")
-  print(difftime(Sys.time(), ts))
+  print(paste0('Step 1 takes ',
+               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
+               'Secs.'))
 
-  # Step2 Inflation Correlation Estimation
+  # Step2 GetI
   ts <- Sys.time()
   step2(cgwasenv)
-  print("Step2 finished")
-  print(difftime(Sys.time(), ts))
+  print(paste0('Step 2 takes ',
+               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
+               'Secs.'))
 
-  # Step3 EbICo
+  # Step3 GetPsi
   ts <- Sys.time()
   step3(cgwasenv)
-  print("Step3 finished")
-  print(difftime(Sys.time(), ts))
+  print(paste0('Step 3 takes ',
+               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
+               'Secs.'))
 
-  # Step4 SWaT
+  # Step4 i-EbICoW
   ts <- Sys.time()
   step4(cgwasenv)
-  print("Step4 finished")
-  print(difftime(Sys.time(), ts))
+  print(paste0('Step 4 takes ',
+               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
+               'Secs.'))
 
-  # Step5 Summary
+  # Step5 Truncated Wald Test
   ts <- Sys.time()
   step5(cgwasenv)
-  print("Step5 finished")
-  print(difftime(Sys.time(), ts))
+  print(paste0('Step 5 takes ',
+               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
+               'Secs.'))
+
+  # Step6 Summary of C-GWAS
+  ts <- Sys.time()
+  step6(cgwasenv)
+  print(paste0('Step 6 takes ',
+               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
+               'Secs.'))
+
+  # R Output restoring default values
+  sink()
 }

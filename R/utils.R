@@ -1,41 +1,124 @@
+paramOutput <- function(cgwasenv) {
+  print("========== C-GWAS basic parameters ==========")
+  print("")
+  print(paste0("Data path : ", dirname(cgwasenv$.GWAS_FILE_PATH[1])))
+  print(paste0("Summary Statistics Column : ", paste(cgwasenv$.ASSOC_COLUMN_INDEX, collapse=", ")))
+  print(paste0("GWAS name : ", paste(cgwasenv$.TRAIT_NAME, collapse=", ")))
+  print(paste0("Exclude NA : ", cgwasenv$.EXCLUDE_NA))
+  print(paste0("MAF path : ", cgwasenv$.MAF_FILE_PATH))
+  print(paste0("Output path : ", cgwasenv$.CGWAS_DIR))
+  print(paste0("Keep i-EbICoW output : ", cgwasenv$.KEEP_EbICoW))
+  print(paste0("Parallel number : ", cgwasenv$.PARAL_NUM))
+  print("")
+  print("")
+  print("========== C-GWAS advanced parameters ==========")
+  print("")
+  paramAdvL <- list(cgwasenv$.IND_SNP_N,
+                    cgwasenv$.SIMUL_DEP,
+                    cgwasenv$.P_THRD_STUDY,
+                    cgwasenv$.P_THRD_SUGST,
+                    cgwasenv$.P_MAIN_EFFECT,
+                    cgwasenv$.MIN_EbICo_POWER_INC,
+                    cgwasenv$.MIN_CORR_DIFF,
+                    cgwasenv$.HIGH_CORR2_RES,
+                    cgwasenv$.SAMPLE_SIZE_INC,
+                    cgwasenv$.TWT_STRAT_CUT,
+                    cgwasenv$.LOESS_INTER_P,
+                    cgwasenv$.LOESS_SPAN_V,
+                    cgwasenv$.LOCI_INTER)
+  paramAdvDefL <- list(1e6,
+                       100,
+                       0.05/indsnpn,
+                       1/indsnpn,
+                       3/indsnpn,
+                       1,
+                       0.05,
+                       0.5,
+                       0.5,
+                       10^(seq(0,1-ceiling(log10(indsnpn)),-1/3))[-1],
+                       c(0.05,0.001),
+                       c(0.03,0.1,0.75),
+                       2.5e5)
+  paramAdvId <- c("Independent SNP number",
+                  "Quantile simulation depth",
+                  "Study-wide significant threshold",
+                  "Suggestive significant threshold",
+                  "Main effect threshold",
+                  "Min EbICoW power increase ratio",
+                  "Min |psi-pi| difference",
+                  "Maximum squared psi restriction",
+                  "Min Ess increase ratio",
+                  "TWT stratification cutoff",
+                  "LOESS interval quantile",
+                  "LOESS span vector",
+                  "Loci interval")
+  userDefIdx <- c()
+  for(i in 1:length(paramAdvL)) {
+    if(!all(paramAdvL[[i]]==paramAdvDefL[[i]])) {
+      userDefIdx <- c(userDefIdx,i)
+    }
+  }
+  print(paste0("User define ", length(userDefIdx), "/13 parameters"))
+  if(length(userDefIdx)!=0) print("")
+  for(i in userDefIdx) {
+    print(paste0(paramAdvId[i]," : ", paste(paramAdvL[[i]], collapse=",")))
+  }
+  if(length(userDefIdx)!=0) print("")
+  print(paste0("Other ", 13 - length(userDefIdx), "/13 parameters are in default"))
+  print("")
+  print("")
+}
+
 StatE1 <- function(traitid, cgwasenv) {
   df <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[traitid],
                           header = T, stringsAsFactors = F, nThread = 1)
   df <- as.data.frame(df)
   bpm <- df[,cgwasenv$.ASSOC_COLUMN_INDEX[4:5]]
   data.table::fwrite(bpm,
-                     file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(traitid, ".bp")),
+                     file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(traitid, ".bp")),
                      row.names = F, col.names = T, quote = F, nThread = 1)
   return(unique(which(is.na(bpm[,1])), which(is.na(bpm[,2]))))
 }
 
-StatE2 <- function(traitid, naid, cgwasenv) {
-  bpm <- data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(traitid, ".bp")),
+StatE2 <- function(traitid, naidList, naid, cgwasenv) {
+  bpm <- data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(traitid, ".bp")),
                            header = T, stringsAsFactors = F, nThread = 1)
   bpm <- as.data.frame(bpm)
-  if(length(naid) != 0) {
-    bpm <- bpm[-naid,]
+  if (cgwasenv$.EXCLUDE_NA) {
+    if(length(naid) != 0) {
+      bpm <- bpm[-naid,]
+    }
+  } else {
+    if(length(naidList[[traitid]]) != 0){
+      bpm <- bpm[naidList[[traitid]], 1] <- 0
+      bpm <- bpm[naidList[[traitid]], 2] <- 1
+    }
   }
+
   data.table::fwrite(as.data.frame(signif(bpm[,1], 7)),
-         file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".beta")),
+         file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".beta")),
          row.names = F, col.names = F, quote = F, nThread = 1)
   bpm[,1] <- sign(bpm[,1])
   bpm[bpm[,2] < (1e-300),2] <- 1e-300
   data.table::fwrite(as.data.frame(signif(sqrt(qchisq(bpm[,2], 1, lower.tail=F))*bpm[,1], 7)),
-         file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".stat")),
+         file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".stat")),
          row.names = F, col.names = F, quote = F, nThread = 1)
-  file.remove(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(traitid, ".bp")))
+  file.remove(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(traitid, ".bp")))
 
   if (traitid == 1) {
     df <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[1],
                             header = T, stringsAsFactors = F, nThread = 1)
     df <- as.data.frame(df)
     df.snp <- df[,cgwasenv$.ASSOC_COLUMN_INDEX[1:3]]
-    if (length(naid) != 0) {
+    if (length(naid) != 0 & cgwasenv$.EXCLUDE_NA) {
       df.snp <- df.snp[-naid,]
+
+      write.table(df.snp[naid], file.path(cgwasenv$.CGWAS_RESULT_PATH, 'ExcludedSNP.txt'),
+                  row.names = F, col.names = F, quote = F)
+      print(paste0(naid.Len," excluded SNPs written to Result/ExcludedSNP.txt"))
     }
     data.table::fwrite(df.snp,
-                       file.path(cgwasenv$.CGWAS_COLDATA_PATH, "SnpIndex"),
+                       file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "SnpIndex"),
                        sep = " ", na = "NA", row.names = F, quote = F, nThread = 1)
   }
   return(nrow(bpm))
@@ -87,220 +170,208 @@ calinf <- function(tm2, inseq, mp) {
   if((N<=0)|((meaq-1)<=0)) {
     lamv <- max(1, min(meaq, tlam))
     propv <- 0
-  } else{
+  } else {
     tq <- quantile(tm2, inseq)
     lamsp <- seq(max(meaq-sqrt(N/3/(1/mp-1)), 0.99), meaq+0.01, length.out=5)
     propv <- 1/(N/3/(meaq-lamsp)^2+1)
     rb <- qcf(lamsp, propv, tq, meaq, inseq)
     intv <- (lamsp[5]-lamsp[1])/2
-    lamv <- odgridse(rb, intv, lamsp, tq, meaq, N, inseq)
+    lamv <- max(c(odgridse(rb, intv, lamsp, tq, meaq, N, inseq),1))
     propv <- 1/(N/3/(meaq-lamv)^2+1)
-    if(lamv>meaq) {
-      lamsp <- seq(max(meaq-sqrt(N/3/(1/mp-1)), 0.99), meaq, length.out=5)
+    if(lamv > min(meaq, tlam)) {
+      lamsp <- seq(max(meaq-sqrt(N/3/(1/mp-1)), 0.99), min(meaq, tlam), length.out=5)
       propv <- 1/(N/3/(meaq-lamsp)^2+1)
       rb <- qcf(lamsp, propv, tq, meaq, inseq)
       intv <- (lamsp[5]-lamsp[1])/2
       lamv <- odgridse(rb, intv, lamsp, tq, meaq, N, inseq)
+      lamv <- max(c(odgridse(rb, intv, lamsp, tq, meaq, N, inseq),1))
       propv <- 1/(N/3/(meaq-lamv)^2+1)
     }
   }
   return(c(lamv, propv))
 }
 
-CorEsti.ICE <- function(t1, t2, id1, id2, resinfm, ranidlist, cgwasenv) {
+meanByHand <- function(x) {
+  return(sum(x) / length(x))
+}
+
+CorEsti.ICE <- function(t1, t2, id1, id2, resinfm, maSpltRw, maSpltN, cgwasenv) {
   mt2 <- resinfm[c(id1, id2), 4]
-  ax1 <- t1^2
-  ax2 <- t2^2
-  atmc1 <- ax1+ax2
-  atmc2 <- t1*t2
-  newpv <- c()
+  cor.reg <- c()
   chisq.cv <- qchisq(0.5, 2)
-  for(i in 1:nrow(ranidlist)) {
-    x1 <- ax1[ranidlist[i,]]
-    x2 <- ax2[ranidlist[i,]]
-    tmc1 <- atmc1[ranidlist[i,]]
-    tmc2 <- atmc2[ranidlist[i,]]
-    testid <- testcor <- 0
-    selid <- tmc1 < chisq.cv
-    cv <- newp <- mean(tmc2[selid])/sqrt(mean(x1[selid])*mean(x2[selid]))
-    if(abs(newp-testcor)>1e-4) {
-      testcor <- newp
-      testid <- c(testid, testcor)
-      tv <- (tmc1-2*testcor*tmc2)/(1-testcor^2)
-      selid <- tv < chisq.cv
-      newp <- mean(tmc2[selid])/sqrt(mean(x1[selid])*mean(x2[selid]))
-      while(abs(newp-testcor)>1e-4) {
-        cv <- c(cv, newp)
-        rcc <- summary(lm(cv~testid))$coefficients[,1]
-        testcor <- rcc[1]/(1-rcc[2])
-        testid <- c(testid, testcor)
-        tv <- (tmc1-2*testcor*tmc2)/(1-testcor^2)
-        selid <- tv < chisq.cv
-        newp <- mean(tmc2[selid])/sqrt(mean(x1[selid])*mean(x2[selid]))
-        if(length(testid)>5) {
-          testid <- testid[-1]
-          cv <- cv[-1]
+
+  t1m <- matrix(t1[1:maSpltN], nrow = maSpltRw, byrow = F)
+  t2m <- matrix(t2[1:maSpltN], nrow = maSpltRw, byrow = F)
+  t1msq <- t1m ^2
+  t2msq <- t2m ^2
+  t1msqT2msqAdd <- t1msq + t2msq
+  t1mT2mProd <- t1m * t2m
+  for(i in 1:maSpltRw) {
+    t1vsq = t1msq[i,]
+    t2vsq = t2msq[i,]
+    t1t2SqAdd = t1msqT2msqAdd[i,]
+    t1t2Prod = t1mT2mProd[i,]
+
+    cor2v <- cor2 <- 0
+    idxSlct <- t1t2SqAdd < chisq.cv
+    cor1v <- cor1 <- sum(t1t2Prod[idxSlct])/sqrt(sum(t1vsq[idxSlct])*sum(t2vsq[idxSlct]))
+    if(abs(cor1-cor2)>1e-4) {
+      cor2 <- cor1
+      cor2v <- c(cor2v, cor2)
+      wald.t <- (t1t2SqAdd-2*cor2*t1t2Prod)/(1-cor2^2)
+      idxSlct <- wald.t < chisq.cv
+      cor1 <- sum(t1t2Prod[idxSlct])/sqrt(sum(t1vsq[idxSlct])*sum(t2vsq[idxSlct]))
+      while(abs(cor1-cor2)>1e-4) {
+        cor1v <- c(cor1v, cor1)
+        rcc <- .lm.fit(cbind(1,cor2v), cor1v)$coefficients
+        cor2 <- rcc[1]/(1-rcc[2])
+        cor2v <- c(cor2v, cor2)
+        wald.t <- (t1t2SqAdd-2*cor2*t1t2Prod)/(1-cor2^2)
+        idxSlct <- wald.t < chisq.cv
+        cor1 <- sum(t1t2Prod[idxSlct])/sqrt(sum(t1vsq[idxSlct])*sum(t2vsq[idxSlct]))
+        if(length(cor2v)>5) {
+          cor2v <- cor2v[-1]
+          cor1v <- cor1v[-1]
         }
       }
     }
-    newpv <- c(newpv, newp)
+    cor.reg <- c(cor.reg, cor1)
   }
-  newp <- mean(newpv)
+  cor.mean <- meanByHand(cor.reg)
 
-  mxx <- mean(atmc2)
-  efc <- mxx-newp
-  if(efc==0) {
+  mxx <- meanByHand(t1mT2mProd)
+  efc <- mxx - cor.mean
+  if(efc == 0) {
     efcr <- 0
-  } else if(prod(mt2-1)!=0) {
-    efcr <- efc/sqrt(prod(mt2-1))
-    if(efcr>1) {
-      efcr <- 1
+  } else {
+    if(prod(mt2-1) != 0) {
+      efcr <- efc/sqrt(prod(mt2-1))
+      efcr <- min(efcr, 1)
+      efcr <- max(efcr, -1)
+    } else {
+      efcr <- sign(efc)
     }
-    if(efcr<(-1)) {
-      efcr <- -1
-    }
-  } else{
-    efcr <- efc/abs(efc)
   }
 
-  tv <- (atmc1-2*newp*atmc2)/(1-newp^2)
-  selid <- tv < qchisq(cgwasenv$.P_THRD, 2, lower.tail=F)
-  meff <- mt2-c(mean(ax1[selid]), mean(ax2[selid]))
-  meff[meff<0] <- 0
-  mcef <- mxx-mean(atmc2[selid])
-  if(mcef==0){
+  tv <- (t1msqT2msqAdd-2*cor.mean*t1mT2mProd)/(1-cor.mean^2)
+  idxSlct <- tv < qchisq(cgwasenv$.P_MAIN_EFFECT, 2, lower.tail=F)
+  meff <- mt2-c(meanByHand(t1msq[idxSlct]), meanByHand(t2msq[idxSlct]))
+  meff[meff < 0] <- 0
+  mcef <- mxx-meanByHand(t1mT2mProd[idxSlct])
+  if(mcef == 0){
     mcefr <- 0
-    if((meff[1]==0)&(meff[2]==0)){
-      meff[1:2] <- 1e-6
+    if((meff[1] == 0) & (meff[2] == 0)){
+      meff[1:2] <- 1/cgwasenv$.IND_SNP_N
     }
-  } else if(prod(meff)!=0){
-    mcefr <- mcef/sqrt(prod(meff))
-    if(mcefr>1){
-      mcefr <- 1
+  } else {
+    if(prod(meff) != 0) {
+      mcefr <- mcef/sqrt(prod(meff))
+      mcefr <- min(mcefr, 1)
+      mcefr <- max(mcefr, -1)
+    } else {
+      mcefr <- sign(mcef)
     }
-    if(mcefr<(-1)){
-      mcefr <- -1
-    }
-  } else{
-    mcefr <- mcef/abs(mcef)
   }
 
-  return(c(mxx/sqrt(prod(mt2)), newp, efc, efcr, meff, mcef, mcefr))
+  return(c(mxx/sqrt(prod(mt2)), cor.mean, efc, efcr, meff, mcef, mcefr))
 }
 
-CorE.ICE <- function(blkId, upnum, pairmaN, pairma, resinfm, ranidlist, cgwasenv) {
-  corm <- c()
-  tempsv <- c(0, 0)
-  for(i in (upnum*(blkId-1)+1) : min(upnum*blkId, pairmaN)) {
-    if(pairma[i, 1]!=tempsv[1]) {
-      t1 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[pairma[i, 1]], ".efstat")),
-                                        header=F, nThread = 1))[,1]
-      tempsv[1] <- pairma[i,1]
-    }
-    if(pairma[i, 2]!=tempsv[2]) {
-      t2 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(cgwasenv$.TRAIT_NAME[pairma[i, 2]], ".efstat")),
-                                        header=F, nThread = 1))[,1]
-      tempsv[2] <- pairma[i,2]
-    }
-    corm <- rbind(corm, CorEsti.ICE(t1, t2, pairma[i, 1], pairma[i, 2], resinfm, ranidlist, cgwasenv))
-  }
+
+CorE.ICE <- function(id1, id2, resinfm, maSpltRw, maSpltN, cgwasenv) {
+  t1 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[id1], ".stat")),
+                                    header = F, nThread = 1))[,1]
+  t2 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[id2], ".stat")),
+                                    header = F, nThread = 1))[,1]
+  corm <- CorEsti.ICE(t1, t2, id1, id2, resinfm, maSpltRw, maSpltN, cgwasenv)
   return(corm)
 }
 
-ridl.ICE <- function(repn, minsnpn, cgwasenv) {
-  bn <- ceiling(cgwasenv$.SNP_N / minsnpn)
-  sl <- floor(cgwasenv$.SNP_N / bn)
-
-  idm <- matrix(seq_len(repn*bn*sl), repn * bn, sl, byrow = F)
-  return(idm)
-}
-
-CorEsti.ebico <- function(t1, t2, id1, id2, ranidlist, cgwasenv) {
+CorEsti.ebico <- function(t1, t2, id1, id2, maSpltRw, maSpltN, cgwasenv) {
   mt2 <- as.numeric(c(id1, id2)) + 1
-  ax1 <- t1^2
-  ax2 <- t2^2
-  atmc1 <- ax1+ax2
-  atmc2 <- t1*t2
-  newpv <- c()
+  cor.reg <- c()
   chisq.cv <- qchisq(0.5, 2)
-  for(i in 1:nrow(ranidlist)) {
-    x1 <- ax1[ranidlist[i,]]
-    x2 <- ax2[ranidlist[i,]]
-    tmc1 <- atmc1[ranidlist[i,]]
-    tmc2 <- atmc2[ranidlist[i,]]
-    testid <- testcor <- 0
-    selid <- tmc1 < chisq.cv
-    cv <- newp <- mean(tmc2[selid])/sqrt(mean(x1[selid])*mean(x2[selid]))
-    if(abs(newp-testcor)>1e-4) {
-      testcor <- newp
-      testid <- c(testid, testcor)
-      tv <- (tmc1-2*testcor*tmc2)/(1-testcor^2)
-      selid <- tv < chisq.cv
-      newp <- mean(tmc2[selid])/sqrt(mean(x1[selid])*mean(x2[selid]))
-      while(abs(newp-testcor)>1e-4) {
-        cv <- c(cv, newp)
-        rcc <- summary(lm(cv~testid))$coefficients[,1]
-        testcor <- rcc[1]/(1-rcc[2])
-        testid <- c(testid, testcor)
-        tv <- (tmc1-2*testcor*tmc2)/(1-testcor^2)
-        selid <- tv < chisq.cv
-        newp <- mean(tmc2[selid])/sqrt(mean(x1[selid])*mean(x2[selid]))
-        if(length(testid)>5) {
-          testid <- testid[-1]
-          cv <- cv[-1]
+
+  t1m <- matrix(t1[1:maSpltN], nrow = maSpltRw, byrow = F)
+  t2m <- matrix(t2[1:maSpltN], nrow = maSpltRw, byrow = F)
+  t1msq <- t1m ^2
+  t2msq <- t2m ^2
+  t1msqT2msqAdd <- t1msq + t2msq
+  t1mT2mProd <- t1m * t2m
+  for(i in 1:maSpltRw) {
+    t1vsq = t1msq[i,]
+    t2vsq = t2msq[i,]
+    t1t2SqAdd = t1msqT2msqAdd[i,]
+    t1t2Prod = t1mT2mProd[i,]
+
+    cor2v <- cor2 <- 0
+    idxSlct <- t1t2SqAdd < chisq.cv
+    cor1v <- cor1 <- sum(t1t2Prod[idxSlct])/sqrt(sum(t1vsq[idxSlct])*sum(t2vsq[idxSlct]))
+    if(abs(cor1-cor2)>1e-4) {
+      cor2 <- cor1
+      cor2v <- c(cor2v, cor2)
+      wald.t <- (t1t2SqAdd-2*cor2*t1t2Prod)/(1-cor2^2)
+      idxSlct <- wald.t < chisq.cv
+      cor1 <- sum(t1t2Prod[idxSlct])/sqrt(sum(t1vsq[idxSlct])*sum(t2vsq[idxSlct]))
+      while(abs(cor1-cor2)>1e-4) {
+        cor1v <- c(cor1v, cor1)
+        rcc <- .lm.fit(cbind(1,cor2v), cor1v)$coefficients
+        cor2 <- rcc[1]/(1-rcc[2])
+        cor2v <- c(cor2v, cor2)
+        wald.t <- (t1t2SqAdd-2*cor2*t1t2Prod)/(1-cor2^2)
+        idxSlct <- wald.t < chisq.cv
+        cor1 <- sum(t1t2Prod[idxSlct])/sqrt(sum(t1vsq[idxSlct])*sum(t2vsq[idxSlct]))
+        if(length(cor2v)>5) {
+          cor2v <- cor2v[-1]
+          cor1v <- cor1v[-1]
         }
       }
     }
-    newpv <- c(newpv, newp)
+    cor.reg <- c(cor.reg, cor1)
   }
-  newp <- mean(newpv)
+  cor.mean <- meanByHand(cor.reg)
 
-  mxx <- mean(atmc2)
-  efc <- mxx-newp
-  if(efc==0) {
+  mxx <- meanByHand(t1mT2mProd)
+  efc <- mxx - cor.mean
+  if(efc == 0) {
     efcr <- 0
-  } else if(prod(mt2-1)!=0) {
-    efcr <- efc/sqrt(prod(mt2-1))
-    if(efcr>1) {
-      efcr <- 1
+  } else {
+    if(prod(mt2-1) != 0) {
+      efcr <- efc/sqrt(prod(mt2-1))
+      efcr <- min(efcr, 1)
+      efcr <- max(efcr, -1)
+    } else {
+      efcr <- sign(efc)
     }
-    if(efcr<(-1)) {
-      efcr <- -1
-    }
-  } else{
-    efcr <- efc/abs(efc)
   }
 
-  tv <- (atmc1-2*newp*atmc2)/(1-newp^2)
-  selid <- tv<qchisq(cgwasenv$.P_THRD, 2, lower.tail=F)
-  meff <- mt2-c(mean(ax1[selid]), mean(ax2[selid]))
-  meff[meff<0] <- 0
-  mcef <- mxx-mean(atmc2[selid])
-  if(mcef==0){
+  tv <- (t1msqT2msqAdd-2*cor.mean*t1mT2mProd)/(1-cor.mean^2)
+  idxSlct <- tv < qchisq(cgwasenv$.P_MAIN_EFFECT, 2, lower.tail=F)
+  meff <- mt2-c(meanByHand(t1msq[idxSlct]), meanByHand(t2msq[idxSlct]))
+  meff[meff < 0] <- 0
+  mcef <- mxx-meanByHand(t1mT2mProd[idxSlct])
+  if(mcef == 0){
     mcefr <- 0
-    if((meff[1]==0)&(meff[2]==0)){
-      meff[1:2] <- 1e-6
+    if((meff[1] == 0) & (meff[2] == 0)){
+      meff[1:2] <- 1/cgwasenv$.IND_SNP_N
     }
-  } else if(prod(meff)!=0) {
-    mcefr <- mcef/sqrt(prod(meff))
-    if(mcefr>1){
-      mcefr <- 1
+  } else {
+    if(prod(meff) != 0) {
+      mcefr <- mcef/sqrt(prod(meff))
+      mcefr <- min(mcefr, 1)
+      mcefr <- max(mcefr, -1)
+    } else {
+      mcefr <- sign(mcef)
     }
-    if(mcefr<(-1)){
-      mcefr <- -1
-    }
-  } else{
-    mcefr <- mcef/abs(mcef)
   }
 
-  return(c(mt2-1, mxx/sqrt(prod(mt2)), newp, efc, efcr, meff, mcef, mcefr))
+  return(c(mt2-1, mxx/sqrt(prod(mt2)), cor.mean, efc, efcr, meff, mcef, mcefr))
 }
 
-CorE.ebico <- function(traitid, newt, TNm, x2m, did, ranidlist, cgwasenv) {
-  t1 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH,
-                                              paste0(TNm[traitid, 1], ".efstat")),
-                                    header=F, nThread = 1))[,1]
-  corm <- CorEsti.ebico(t1, newt, TNm[traitid, 2], x2m[did], ranidlist, cgwasenv)
+CorE.ebico <- function(traitid, newt, TNm, x2m, maSpltRw, maSpltN, cgwasenv) {
+  t1 <- as.matrix(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH,
+                                              paste0(TNm[traitid, 1], ".stat")),
+                                    header = F, nThread = 1))[,1]
+  corm <- CorEsti.ebico(t1, newt, TNm[traitid, 2], x2m, maSpltRw, maSpltN, cgwasenv)
   return(corm)
 }
 
@@ -379,9 +450,9 @@ ebicocof <- function(cv, ssw, tm, thresc) {
 }
 
 Essfun <- function(tid, mafv, cgwasenv) {
-  t2m <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(tid, ".efstat")),
+  t2m <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(tid, ".stat")),
                                          header=F, stringsAsFactors=F, nThread = 1))[,1]
-  b2m <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_COLDATA_PATH, paste0(tid, ".beta")),
+  b2m <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(tid, ".beta")),
                                          header=F, stringsAsFactors=F, nThread = 1))[,1]
   s2m <- t2m/b2m
   if(cgwasenv$.MAF_FILE_EXIST) {
@@ -392,32 +463,16 @@ Essfun <- function(tid, mafv, cgwasenv) {
   return(mse)
 }
 
-ridl.ebico <- function(repn, minsnpn, cgwasenv) {
-  bn <- ceiling(cgwasenv$.SNP_N / minsnpn)
-  sl <- floor(cgwasenv$.SNP_N / bn)
-
-  idm <- matrix(seq_len(repn*bn*sl), repn * bn, sl, byrow = F)
-  return(idm)
-}
-
-gcrom <- function(rv, n) {
-  corm <- diag(n)
-  n <- 0
-  for(i in 2:nrow(corm)) {
-    corm[i:nrow(corm), i-1] <- corm[i-1, i:nrow(corm)] <- rv[(n+1):(n+nrow(corm)-i+1)]
-    n <- n+nrow(corm)-i+1
-  }
-  return(corm)
-}
-
 ptc <- function(bgm, stm) {
+  p1 <- eigen(bgm)
+  ptv <- p1$values
+  ptv[ptv<1/length(ptv)] <- 1/length(ptv)
+  ptv <- ptv/(sum(ptv)/length(ptv))
+  newcorm <- p1$vectors %*% diag(ptv) %*% t(p1$vectors)
+  bgm <- t(newcorm/sqrt(diag(newcorm)))/sqrt(diag(newcorm))
   nn <- 0
   cm <- 0.01*(stm-bgm)
   while(!all(eigen(bgm)$values>0)) {
-    nn <- nn+1
-    bgm <- bgm+cm
-  }
-  while((!all(abs(solve(bgm))<10))&(nn<100)) {
     nn <- nn+1
     bgm <- bgm+cm
   }
@@ -505,70 +560,6 @@ appmin <- function(pm) {
   return(do.call(pmin, c(as.data.frame(pm), na.rm = TRUE)))
 }
 
-locisearch <- function(sp, spos, fp, cgwasenv) {
-  n <- 0
-  lclist <- list()
-  if(length(sp)!=0) {
-    keyid <- order(sp)[1]
-    while(sp[keyid]<=fp) {
-      idirc <- ddirc <- spos[keyid,2]
-      oldddirc <- oldidirc <- -1
-      while((oldddirc!=ddirc)|(oldidirc!=idirc)) {
-        oldddirc <- ddirc
-        oldidirc <- idirc
-        tdl <- which((spos[,1]==spos[keyid, 1])&(spos[,2]>(ddirc-cgwasenv$.LOCI_INTER))&(spos[,2]<(idirc+cgwasenv$.LOCI_INTER)))
-        ddirc <- spos[min(tdl),2]
-        idirc <- spos[max(tdl),2]
-      }
-      n <- n+1
-      lclist[[n]] <- tdl
-      spos[tdl,] <- NA
-      sp[tdl] <- NA
-      keyid <- order(sp)[1]
-      if(is.na(sp[keyid])) {
-        break
-      }
-    }
-  }
-  return(lclist)
-}
-
-fdrf <- function(opv, Sind, cgwasenv) {
-  os <- which(opv<1e-4)
-  stos <- opv[os][order(opv[os])]
-  fdrvo <- c()
-  for(i in 1:length(stos)) {
-    fdrvo <- c(fdrvo, stos[i]*nrow(Sind)/i)
-  }
-  mfdrvo <- min(fdrvo)
-
-  efplcno <- lcno <- fdrsno <- fdrpo <- c()
-  for(i in 1:length(cgwasenv$.FDR_SET)) {
-    if(mfdrvo<cgwasenv$.FDR_SET[i]) {
-      id <- max(which(fdrvo<cgwasenv$.FDR_SET[i]))
-      if(id!=length(fdrvo)) {
-        fdrpo <- c(fdrpo, mean(stos[c(id, id+1)]))
-        fdrsno <- c(fdrsno, id)
-        oso <- os[which(opv[os]<=fdrpo[i])]
-        lco <- locisearch(opv[oso], Sind[oso, 1:2], fdrpo[i], cgwasenv)
-        lcno <- c(lcno, length(lco))
-        efplcno <- c(efplcno, lcno[i]*cgwasenv$.FDR_SET[i])
-      } else{
-        fdrpo <- c(fdrpo, 1e-4)
-        fdrsno <- c(fdrsno, NA)
-        lcno <- c(lcno, NA)
-        efplcno <- c(efplcno, NA)
-      }
-    } else{
-      fdrpo <- c(fdrpo, NA)
-      fdrsno <- c(fdrsno, 0)
-      lcno <- c(lcno, 0)
-      efplcno <- c(efplcno, NA)
-    }
-  }
-  return(cbind(fdrpo, fdrsno, lcno, efplcno))
-}
-
 efvn <- function(cm, snpn) {
   tm <- scale(mkdf(snpn, cm))
   tm2 <- tm^2
@@ -608,6 +599,16 @@ tpcor.v <- function(v, efn) {
   v[which(vt > 1e-12)] <- 1 - (1 - vt[which(vt > 1e-12)]) ^ efn
   v[which(vt <= 1e-12)] <- vt[which(vt <= 1e-12)] * efn
   return(v)
+}
+
+tpcor.m.simumin <- function(m, efn) {
+  for (i in 1: length(efn)) {
+    v <- m[, i]
+    m[which(v > 1e-12), i] <- 1 - (1 - v[which(v > 1e-12)]) ^ efn[i]
+    m[which(v <= 1e-12), i] <- v[which(v <= 1e-12)] * efn[i]
+  }
+  m.min <- do.call(pmin, c(as.data.frame(m), na.rm = TRUE))
+  return(m.min)
 }
 
 tpcor2 <- function(v, md){
@@ -659,8 +660,8 @@ nullcorrection <- function(isimup, nam, cgwasenv) {
   y <- y[sid]
   x <- x[sid]
   write.table(cbind(x, y),
-              file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, paste0("Null", nam, "correction")),
-              row.names=F, col.names=c("ExpectedQuantile&P", "ObservedP"), quote=F)
+              file.path(cgwasenv$.CGWAS_DETAIL_PATH, paste0("Null", nam, "correction.txt")),
+              row.names=F, col.names=c("ExpectedQuantile", "ObservedP"), quote=F)
 
   yy <- x/y
   xx <- -log10(x)
@@ -673,27 +674,20 @@ nullcorrection <- function(isimup, nam, cgwasenv) {
     tv <- c(tv, sum(yy[(length(yy)-smn+1):(length(yy)-i+1)]*weight[1:(smn-i+1)])/sum(weight[1:(smn-i+1)]))
   }
 
-  for(i in cgwasenv$.LOESS_SPAN_V){
-    drawnc(xx, yy, tv, i, nam, cgwasenv)
-  }
-
   intp <- c(min(xx), -log10(cgwasenv$.LOESS_INTER_P), max(xx))
 
-  jpeg(file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, paste0("Null", nam, "correction.jpg")),
-       width=3000, height=3000, res=600)
-  par(mar=c(3, 3, 1, 1))
-  plot(xx[(length(yy)-length(tv)+1):length(yy)], yy[(length(yy)-length(tv)+1):length(yy)], pch=20, col="grey75", xlim=c(0, max(xx)), ylim=c(0, max(c(yy, tv))))
   yy[(length(yy)-length(tv)+1):length(yy)] <- tv
   md <- list()
   for(i in 1:length(cgwasenv$.LOESS_SPAN_V)){
     md[[i]] <- loess(yy~xx, span=cgwasenv$.LOESS_SPAN_V[i])
   }
   md[[length(cgwasenv$.LOESS_SPAN_V)+1]] <- intp
-  points(xx, yy, pch=20)
-  lines(c(seq(min(xx), max(xx), 0.001), max(xx)), tpcor2(10^(-c(seq(min(xx), max(xx), 0.001), max(xx))), md), lwd=1.5, col="red")
-  dev.off()
 
-  ssid <- c(1:1e4, seq(1e4, 1e5, 10), seq(1e5, cgwasenv$.IND_SNP_N, 100))
+  if (cgwasenv$.IND_SNP_N < 1e5) {
+    ssid <- c(1:1e4,seq(1e4,cgwasenv$.IND_SNP_N,10))
+  } else {
+    ssid <- c(1:1e4,seq(1e4,1e5,10),seq(1e5,cgwasenv$.IND_SNP_N,100))
+  }
   swwm <- matrix(isimup[sample(1:sn, sn)], ncol=rsn)
   for(i in 1:rsn){
     swwm[,i] <- swwm[order(swwm[,i]),i]
@@ -712,7 +706,7 @@ nullcorrection <- function(isimup, nam, cgwasenv) {
 
   nulpm <- cbind(qbeta(0.05, ssid, cgwasenv$.IND_SNP_N+1-ssid), qbeta(0.5, ssid, cgwasenv$.IND_SNP_N+1-ssid), qbeta(0.95, ssid, cgwasenv$.IND_SNP_N+1-ssid))
 
-  jpeg(file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, paste0("Null", nam, "distribution.jpg")),
+  jpeg(file.path(cgwasenv$.CGWAS_DETAIL_PATH, paste0("Null", nam, "distribution.jpg")),
        width=3000, height=3000, res=600)
   par(mar=c(3.5, 3.5, 1, 1))
 
@@ -732,59 +726,37 @@ nullcorrection <- function(isimup, nam, cgwasenv) {
   return(md)
 }
 
-drawnc <- function(xx, yy, tv, i, nam, cgwasenv){
-  jpeg(file.path(cgwasenv$.CGWAS_TEMPDATA_PATH, paste0("Null", nam, "correctionSpan", i, ".jpg")),
-       width=3000, height=3000, res=600)
-  par(mar=c(3, 3, 1, 1))
-  plot(xx[(length(yy)-length(tv)+1):length(yy)], yy[(length(yy)-length(tv)+1):length(yy)], pch=20, col="grey75", xlim=c(0, max(xx)), ylim=c(0, max(c(yy, tv))))
-  yy[(length(yy)-length(tv)+1):length(yy)] <- tv
-  md <- loess(yy~xx, span=i)
-  points(xx, yy, pch=20)
-  lines(c(seq(min(xx), max(xx), 0.001), max(xx)), predict(md, c(seq(min(xx), max(xx), 0.001), max(xx))), lwd=1.2, col="red")
-  dev.off()
-}
-
-ffdrv <- function(pv, fv, Sind) {
-  os <- which(pv<1e-4)
-  stos <- pv[os][order(pv[os])]
-  fdrvo <- c()
-  for(i in 1:length(stos)) {
-    fdrvo <- c(fdrvo, stos[i]*nrow(Sind)/i)
-  }
-  if(min(fdrvo)<fv) {
-    id <- max(which(fdrvo<=fv))
-    if(mean(stos[c(id, id+1)])>5e-8) {
-      return(mean(stos[c(id, id+1)]))
-    } else{
-      return(5e-8)
+locisearch <- function(sp, spos, fp, cgwasenv) {
+  n <- 0
+  lclist <- list()
+  if (length(sp)!=0) {
+    keyid <- order(sp)[1]
+    while (sp[keyid]<=fp) {
+      idirc <- ddirc <- spos[keyid,2]
+      oldddirc <- oldidirc <- -1
+      while ((oldddirc!=ddirc)|(oldidirc!=idirc)) {
+        oldddirc <- ddirc
+        oldidirc <- idirc
+        tdl <- which ((spos[,1]==spos[keyid, 1]) &
+                        (spos[,2]>(ddirc-cgwasenv$.LOCI_INTER)) &
+                        (spos[,2]<(idirc+cgwasenv$.LOCI_INTER)))
+        ddirc <- spos[min(tdl),2]
+        idirc <- spos[max(tdl),2]
+      }
+      n <- n+1
+      lclist[[n]] <- tdl
+      spos[tdl,] <- NA
+      sp[tdl] <- NA
+      keyid <- order(sp)[1]
+      if (is.na(sp[keyid])) {
+        break
+      }
     }
-  } else{
-    return(5e-8)
   }
+  return(lclist)
 }
 
-ptc.summay <- function(bgm, stm) {
-  nn <- 0
-  cm <- 0.01*(stm-bgm)
-  while(!all(eigen(bgm)$values>0)) {
-    nn <- nn+1
-    bgm <- bgm+cm
-  }
-  return(list(bgm, nn))
-}
-
-ttp <- function(tm) {
-  return(pchisq(tm^2, 1, lower.tail=F))
-}
-
-tpcor.summary <- function(v, efn) {
-  vt <- v
-  vt[which(v > 1e-12)] <- 1 - (1 - v[which(v > 1e-12)]) ^ efn
-  vt[which(v <= 1e-12)] <- v[which(v <= 1e-12)] * efn
-  return(vt)
-}
-
-manhattan <- function(op,np,osid,nsid,lco,lcn,fpo,fpn,
+manhattan <- function(op,np,osid,nsid,lco,lcn,fpo,fpn,gpo,gpn,
                       Sind,newtick,
                       pcol=c("#009DE8", "#233FAA"), pcex=0.35, ph=20) {
   d <- cbind(Sind[,c(1, 4)], -log10(op), -log10(np))
@@ -830,7 +802,7 @@ manhattan <- function(op,np,osid,nsid,lco,lcn,fpo,fpn,
   d2 <- which((d$NP>1)&(d$NP<=2))
   d3 <- which((d$NP>2)&(d$NP<=3))
   d4 <- which(d$NP>3)
-  tsid <- c(sample(d1, 1e5), sample(d2, min(length(d2), 1e5)), sample(d3, min(length(d3), 1e5)), d4)
+  tsid <- c(sample(d1,min(length(d1),1e5)),sample(d2,min(length(d2),1e5)),sample(d3,min(length(d3),1e5)),d4)
   dd <- d[tsid[order(tsid)],]
   icol <- 1
   dd$NP <- dd$NP+0.2*ymax
@@ -842,7 +814,7 @@ manhattan <- function(op,np,osid,nsid,lco,lcn,fpo,fpn,
   d2 <- which((d$OP>1)&(d$OP<=2))
   d3 <- which((d$OP>2)&(d$OP<=3))
   d4 <- which(d$OP>3)
-  tsid <- c(sample(d1, 1e5), sample(d2, min(length(d2), 1e5)), sample(d3, min(length(d3), 1e5)), d4)
+  tsid <- c(sample(d1,min(length(d1),1e5)),sample(d2,min(length(d2),1e5)),sample(d3,min(length(d3),1e5)),d4)
   dd <- d[tsid[order(tsid)],]
   icol <- 1
   dd$OP <- -dd$OP
@@ -888,25 +860,25 @@ manhattan <- function(op,np,osid,nsid,lco,lcn,fpo,fpn,
   }
 
   rect(xmin, 0, xmax, 0.2*ymax, col="white", border=NA)
-  text(newtick, 0.16*ymax, c(1:18, "19", 20, "21", 22), cex=0.7, xpd=NA)
-  text(newtick[8], 0.07*ymax, "Chromosome", cex=1.1, xpd=NA)
-  abline(h=-log10(5e-8)+0.2*ymax, lty=2)
+  text(newtick,0.16*ymax,unique(d$CHR),cex=0.7,xpd=NA)
+  text((newtick[1]+newtick[length(newtick)])/2,0.07*ymax,"Chromosome",cex=1.1,xpd=NA)
+  abline(h=-log10(gpn)+0.2*ymax,lty=2)
   abline(h=-log10(fpn)+0.2*ymax, lty=1)
   abline(h=-log10(1)+0.2*ymax, lty=1)
-  abline(h=log10(5e-8), lty=2)
+  abline(h=log10(gpo),lty=2)
   abline(h=log10(fpo), lty=1)
   abline(h=log10(1), lty=1)
   return(locistatm)
 }
 
 manpos <- function(idm) {
-  chn <- unique(idm$CHR)
-  pos <- idm$BP
+  chn <- unique(idm[,1])
+  pos <- idm[,2]
   newtick <- c()
   incm <- 0
   for(i in chn) {
-    temid <- which(idm$CHR==i)
-    temBP <- idm$BP[temid]
+    temid <- which(idm[,1]==i)
+    temBP <- idm[temid,2]
     decm <- temBP[1]
     pos[temid] <- pos[temid]-decm+1+incm
     incm <- incm+temBP[length(temBP)]-temBP[1]+1e7
