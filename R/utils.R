@@ -1,18 +1,21 @@
+# Send R Output to a File
+logOutput <- function(..., cgwasenv) {
+  sink(file.path(cgwasenv$.CGWAS_RESULT_PATH, 'LogFile'), append=TRUE, split=TRUE)
+  cat(paste0(...))
+  sink()
+}
+
 paramOutput <- function(cgwasenv) {
-  print("========== C-GWAS basic parameters ==========")
-  print("")
-  print(paste0("Data path : ", dirname(cgwasenv$.GWAS_FILE_PATH[1])))
-  print(paste0("Summary Statistics Column : ", paste(cgwasenv$.ASSOC_COLUMN_INDEX, collapse=", ")))
-  print(paste0("GWAS name : ", paste(cgwasenv$.TRAIT_NAME, collapse=", ")))
-  print(paste0("Exclude NA : ", cgwasenv$.EXCLUDE_NA))
-  print(paste0("MAF path : ", cgwasenv$.MAF_FILE_PATH))
-  print(paste0("Output path : ", cgwasenv$.CGWAS_DIR))
-  print(paste0("Keep i-EbICoW output : ", cgwasenv$.KEEP_EbICoW))
-  print(paste0("Parallel number : ", cgwasenv$.PARAL_NUM))
-  print("")
-  print("")
-  print("========== C-GWAS advanced parameters ==========")
-  print("")
+  logOutput("\n========== C-GWAS basic parameters ==========\n\n", cgwasenv = cgwasenv)
+  logOutput("GWAS result file path : ", dirname(cgwasenv$.GWAS_FILE_PATH[1]), '\n', cgwasenv = cgwasenv)
+  logOutput("SNP information file path : ", paste(cgwasenv$.SNP_FILE_PATH, collapse=", "), '\n', cgwasenv = cgwasenv)
+  logOutput("GWAS name : ", paste(cgwasenv$.TRAIT_NAME, collapse=", "), '\n', cgwasenv = cgwasenv)
+  logOutput("Exclude NA : ", cgwasenv$.EXCLUDE_NA, '\n', cgwasenv = cgwasenv)
+  logOutput("MAF path : ", cgwasenv$.MAF_FILE_PATH, '\n', cgwasenv = cgwasenv)
+  logOutput("Output path : ", cgwasenv$.CGWAS_DIR, '\n', cgwasenv = cgwasenv)
+  logOutput("Keep i-EbICoW output : ", cgwasenv$.KEEP_EbICoW, '\n', cgwasenv = cgwasenv)
+  logOutput("Parallel number : ", cgwasenv$.PARAL_NUM, '\n', cgwasenv = cgwasenv)
+  logOutput("\n========== C-GWAS advanced parameters ==========\n\n", cgwasenv = cgwasenv)
   paramAdvL <- list(cgwasenv$.IND_SNP_N,
                     cgwasenv$.SIMUL_DEP,
                     cgwasenv$.P_THRD_STUDY,
@@ -28,14 +31,14 @@ paramOutput <- function(cgwasenv) {
                     cgwasenv$.LOCI_INTER)
   paramAdvDefL <- list(1e6,
                        100,
-                       0.05/indsnpn,
-                       1/indsnpn,
-                       3/indsnpn,
+                       0.05/cgwasenv$.IND_SNP_N,
+                       1/cgwasenv$.IND_SNP_N,
+                       3/cgwasenv$.IND_SNP_N,
                        1,
                        0.05,
                        0.5,
                        0.5,
-                       10^(seq(0,1-ceiling(log10(indsnpn)),-1/3))[-1],
+                       10^(seq(0,1-ceiling(log10(cgwasenv$.IND_SNP_N)),-1/3))[-1],
                        c(0.05,0.001),
                        c(0.03,0.1,0.75),
                        2.5e5)
@@ -58,32 +61,29 @@ paramOutput <- function(cgwasenv) {
       userDefIdx <- c(userDefIdx,i)
     }
   }
-  print(paste0("User define ", length(userDefIdx), "/13 parameters"))
-  if(length(userDefIdx)!=0) print("")
-  for(i in userDefIdx) {
-    print(paste0(paramAdvId[i]," : ", paste(paramAdvL[[i]], collapse=",")))
+  logOutput("User define ", length(userDefIdx), "/13 parameters\n", cgwasenv = cgwasenv)
+  if(length(userDefIdx)!=0) {
+    logOutput("\n", cgwasenv = cgwasenv)
+    for(i in userDefIdx) {
+      logOutput(paramAdvId[i]," : ", paste(paramAdvL[[i]], collapse=","), '\n', cgwasenv = cgwasenv)
+    }
+    logOutput("\n", cgwasenv = cgwasenv)
   }
-  if(length(userDefIdx)!=0) print("")
-  print(paste0("Other ", 13 - length(userDefIdx), "/13 parameters are in default"))
-  print("")
-  print("")
+  logOutput("Other ", 13 - length(userDefIdx), "/13 parameters are in default\n\n\n", cgwasenv = cgwasenv)
 }
 
 StatE1 <- function(traitid, cgwasenv) {
   df <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[traitid],
                           header = T, stringsAsFactors = F, nThread = 1)
   df <- as.data.frame(df)
-  bpm <- df[,cgwasenv$.ASSOC_COLUMN_INDEX[4:5]]
-  data.table::fwrite(bpm,
-                     file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(traitid, ".bp")),
-                     row.names = F, col.names = T, quote = F, nThread = 1)
+  bpm <- df
   return(unique(which(is.na(bpm[,1])), which(is.na(bpm[,2]))))
 }
 
 StatE2 <- function(traitid, naidList, naid, cgwasenv) {
-  bpm <- data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(traitid, ".bp")),
+  bpm <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[traitid],
                            header = T, stringsAsFactors = F, nThread = 1)
-  bpm <- as.data.frame(bpm)
+  bpm <- as.matrix(bpm)
   if (cgwasenv$.EXCLUDE_NA) {
     if(length(naid) != 0) {
       bpm <- bpm[-naid,]
@@ -98,24 +98,20 @@ StatE2 <- function(traitid, naidList, naid, cgwasenv) {
   data.table::fwrite(as.data.frame(signif(bpm[,1], 7)),
          file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".beta")),
          row.names = F, col.names = F, quote = F, nThread = 1)
-  bpm[,1] <- sign(bpm[,1])
   bpm[bpm[,2] < (1e-300),2] <- 1e-300
-  data.table::fwrite(as.data.frame(signif(sqrt(qchisq(bpm[,2], 1, lower.tail=F))*bpm[,1], 7)),
+  data.table::fwrite(as.data.frame(signif(sqrt(qchisq(bpm[,2], 1, lower.tail=F))*sign(bpm[,1]), 7)),
          file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".stat")),
          row.names = F, col.names = F, quote = F, nThread = 1)
-  file.remove(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(traitid, ".bp")))
 
   if (traitid == 1) {
-    df <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[1],
-                            header = T, stringsAsFactors = F, nThread = 1)
-    df <- as.data.frame(df)
-    df.snp <- df[,cgwasenv$.ASSOC_COLUMN_INDEX[1:3]]
+    df.snp <- data.table::fread(cgwasenv$.SNP_FILE_PATH,
+                                header = T, stringsAsFactors = F, nThread = 1)
     if (length(naid) != 0 & cgwasenv$.EXCLUDE_NA) {
       df.snp <- df.snp[-naid,]
 
       write.table(df.snp[naid], file.path(cgwasenv$.CGWAS_RESULT_PATH, 'ExcludedSNP.txt'),
                   row.names = F, col.names = F, quote = F)
-      print(paste0(naid.Len," excluded SNPs written to Result/ExcludedSNP.txt"))
+      logOutput(length(naid)," excluded SNPs written to Result/ExcludedSNP.txt\n", cgwasenv = cgwasenv)
     }
     data.table::fwrite(df.snp,
                        file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "SnpIndex"),
@@ -461,6 +457,16 @@ Essfun <- function(tid, mafv, cgwasenv) {
     mse <- median(s2m^2, na.rm=T)
   }
   return(mse)
+}
+
+gcrom <- function(rv, n){
+  corm <- diag(n)
+  n <- 0
+  for(i in 2:nrow(corm)){
+    corm[i:nrow(corm),i-1] <- corm[i-1,i:nrow(corm)] <- rv[(n+1):(n+nrow(corm)-i+1)]
+    n <- n+nrow(corm)-i+1
+  }
+  return(corm)
 }
 
 ptc <- function(bgm, stm) {

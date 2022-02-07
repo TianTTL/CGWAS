@@ -1,3 +1,22 @@
+ #' A Reference Class to save global variables
+ #' @noRd
+CGWAS_ENV <- setRefClass("CGWAS_ENV",
+                         fields = c(".GWAS_FILE_PATH",".SNP_FILE_PATH",
+                                    ".TRAIT_NAME",".TRAIT_NUM",".SNP_N",
+                                    ".EXCLUDE_NA",".MAF_FILE_PATH",
+                                    ".MAF_FILE_EXIST",".CGWAS_DIR",
+                                    ".KEEP_EbICoW",".PARAL_NUM",".IND_SNP_N",
+                                    ".SIMUL_DEP",".SIMUL_SNP_N",".SIMUL_N",
+                                    ".P_THRD_STUDY",".P_THRD_SUGST",
+                                    ".P_MAIN_EFFECT",".MIN_EbICo_POWER_INC",
+                                    ".MIN_CORR_DIFF",".HIGH_CORR2_RES",
+                                    ".HIGH_CORR_RES",".SAMPLE_SIZE_INC",
+                                    ".TWT_STRAT_CUT",".LOESS_INTER_P",
+                                    ".LOESS_SPAN_V",".LOCI_INTER",
+                                    ".CGWAS_DETAIL_PATH",".CGWAS_iEbICoW_PATH",
+                                    ".CGWAS_RESULT_PATH"),
+                         inheritPackage = TRUE)
+
 #' combine GWAS (C-GWAS)
 #'
 #' A whole solution for illustrating multi-trait effect of all SNPs with a set
@@ -7,11 +26,6 @@
 #' combined p-values testing if the null is deviated. For each SNP, the null is
 #' the absence of any effect on all traits, and the alternative is that its
 #' effect deviates from 0 for at least one trait.
-#'
-#' To estimate the effect of each SNP more accurately, several data organization
-#' standard should be noticed. (1) The effect size in each GWAS should be in the
-#' same scale. (2) In one GWAS, the minimum samples size of each SNP should
-#' be no less than 60% of the median.
 #'
 #' C-GWAS integrates two different statistical methods to ensure the optimal
 #' power under various and complex scenarios while keeping a stable study-wide
@@ -28,55 +42,197 @@
 #' simulations and adjust the resultant p-values in such a way that they are
 #' directly comparable with those from traditional GWAS of a single trait.
 #'
-#' @param gwasFilePath A string list of path to GWASs summary data files.
-#' @param assocColInx A number list indicates column number of SNP index (CHR &
-#' BP & SNP) and association result (BETA & P).
-#' @param mafFilePath Path to allele frequency file.
-#' @param threadN The number of threads for parallel computing. The default value
-#' is half of the maximum number of cores on the hardware.
-#' @param outputPath Result output directory.
-#' @param traitName A list of trait names.
-#' @param indSNPN Independent SNPs number.
-#' @param simulTime Number of simulations for multiple testing correction. This
-#' parameter greatly affects the operating efficiency.
-#' @param ebicoPwrInc Minimum EbICo power increase ratio.
-#' @param sampleNInc Equivalent sample size in EbICo increase ratio.
+#' The summary and immediate results of C-GWAS analysis are saved in the output
+#' directory \code{outputPath} defined by user. There are two directorys in this
+#' directory: \code{Result/} and \code{Details/}. The former contains the
+#' summary results, including 1) Manhattan plots \code{CGWAS-GWAS.jpg} and 2) Q-Q
+#' plots \code{CGWASminpQQ.jpg} of C-GWAS and MinGWAS, 3) suggestively significant
+#' SNPs table \code{SummarySugSigSNP.csv}, and 4) p-values of all SNPs \code{C-GWAS.p}.
+#' The latter contains the immediate result, including 1) result of getI
+#' function applied to all GWASs \code{SummaryGetI.txt}; 2) result of getPsi function
+#' applied to all GWAS pairs \code{SummaryGetPsi.txt}, 3) summary of result of
+#' i-EbICoW \code{EbICoW.txt}, 4) result of getPsi function applied to all EbICoW
+#' GWAS pairs \code{SummaryEbICoWGetPsi.txt}, 5) records of all i-EbICoW iterations
+#' \code{Summaryi-EbICoW.txt}, 6) C-GWAS LOESS model samples simulated in getCoef
+#' function \code{NullCGWAScorrection.txt}, 7) performance of getCoef based
+#' correction in C-GWAS simulation \code{NullCGWASdistribution.jpg}, 8) MinGWAS LOESS
+#' model samples simulated in getCoef function \code{NullMinpcorrection.txt}, 9)
+#' performance of getCoef based correction in MinGWAS simulation
+#' \code{NullMinpdistribution.jpg}. If user choose to keep i-EbICoW output (Kio), all
+#' summary statistics (effect sizes, *.beta and test statistics, *.stat) of
+#' EbICoW GWASs would be kept in directory \code{Details/i-EbICoW}.
 #'
-#' @return Several .csv files and figures will be generated in \code{outputPath}.
+#' @param gwasFilePath a string list containg the paths to GWASs summary files.
+#' @param snpFilePath a string indicating path to SNP information file. The SNP
+#' information file has three columns, which represent CHR, BP and SNP
+#' respectively.
+#' @param outputPath a string indicating path to result output directory.
+#' @param traitName a string list of trait names.
+#' @param exNa logical. If \code{TRUE}, SNPs with NA in at least one GWAS will
+#' be removed; if If \code{FALSE}, the NA is replaced with BETA=0 and P=1.
+#' @param mafFilePath a string indicating path to MAF file.
+#' @param keepIEb logical. If \code{TRUE},, BETA and STAT of all i-EbICoW
+#' combinations will be saved in \code{Details/i-EbICoW}.
+#' @param threadN number of threads to be used for parallel computing. The
+#' default value is half of the maximum number of cores
+#' on the hardware.
+#' @param indSNPN independent SNPs number, which should not be smaller than
+#' 10,000 and a multiple of 500. The default value is 1e6.
+#' @param simulDep an integer specifying quantile simulation depth, which should
+#' not be smaller than 100 and a multiple of 100. The default value is 100.
+#' @param pStudy study-wide significant threshold, which should
+#' take values in \code{(0,5e-6]}. The default value is 0.05/indSNPN
+#' @param pSugst suggestive significant threshold, which should
+#' take values in \code{(0,1e-4]}. The default value is 1/indSNPN
+#' @param pMain main effect threshold, which should take values in \code{(0,3/1e4]}.
+#' The default value is 3/indSNPN.
+#' @param ebicoPwrInc minimum EbICoW power increase ratio, which should greater
+#' than 0. The default value is 1.
+#' @param minCorDiff minimum correlation difference, which should greater than
+#' 0. The default value is 0.05.
+#' @param hiCorRestc high correlation restriction, which should take values in
+#' \code{(0,1)}. The default value is 0.05.
+#' @param sampleNInc equivalent sample size in EbICo increase ratio, which
+#' should take values in \code{(0,1)}. The default value is 0.05.
+#' @param twtStCo a vector of TWT stratification cutoffs, which should take
+#' values in \code{(0,1)}. The default value is
+#' \code{10^(seq(0,1-ceiling(log10(indSNPN)),-1/3))[-1]}.
+#' @param LoInrP a vector of LOESS interval p, which should be in decreased
+#' order and take values in \code{[10/indSNPN,0.1]}. The default value is
+#' \code{c(0.05,0.001)}.
+#' @param LoSpanV a vector of LOESS span, which should take values in \code{(0,1)}.
+#' The default value is \code{c(0.03,0.1,0.75)}. The length of \code{LoSpanV}
+#' should equal to \code{length(LoInrP)+1}.
+#' @param lociInr an integer indicating loci interval, which should take values
+#' in \code{[1e5,1e6]}. The default value is 2.5e5.
 #'
-#' \code{MutipleTestingCorrection.txt}.
+#' @return Several files and figures will be generated in \code{outputPath}.
 #'
-#' \code{GWAShits.csv}.
+#' \code{CGWAS-GWAS.jpg}: Combined Manhattan plots displays adjusted C-GWAS
+#' p-value (upper parts) and adjusted MinGWAS p-value (lower parts) of all SNPs
+#' in –log10 scale. The study-wide significance is indicated using dashed lines
+#' and the suggestive significance is indicated using solid lines. Loci with the
+#' lead SNP passing the study-wide significant line on both sides are
+#' highlighted using different colors and shapes. One side’s unique loci are
+#' indicated in orange diamond. Two sides’ overlapped loci are indicated in
+#' green cross.
 #'
-#' \code{EbICohits.csv}.
+#' \code{CGWASminpQQ.jpg}: Adjusted p-values in –log10 scale (y-axis) of MinGWAS
+#' (blue) and C-GWAS (orange) for all SNPs are plotted against their expected
+#' uniformly distributed quantile in –log10 scale (x-axis) under the null.
 #'
-#' \code{SWaThits.csv}.
+#' \code{SummarySugSigSNP.csv}: This table contains the SNP passing the
+#' suggestive significant cut-off of either C-GWAS or MinGWAS. For each SNP, its
+#' position (CHR and BP), rsID (SNP), adjusted C-GWAS p-value (C-GWAS-P) and
+#' MinGWAS p-value (MinGWAS-P) is always provided. Minor allele frequency (MAF)
+#' will be provided if user define available frequency data path \code{mafFilePath}.
+#' All SNPs were clustered to different loci base on distance parameter
+#' \code{lociInr}. Loci are distinguished using the descending order of significance
+#' of lead SNP in each loci from C-GWAS (C-GWAS-Loci) and MinGWAS (MinGWAS-Loci)
+#' respectively. NA indicates the SNP is not suggestive significant in C-GWAS or
+#' MinGWAS.
 #'
-#' \code{Summaryhits.csv}.
+#' \code{C-GWAS.p}: This dataset contains position (CHR and BP), rsID (SNP),
+#' adjusted C-GWAS p-value (C-GWASadjustedP), unadjusted C-GWAS p-value
+#' (C-GWASrawP), adjusted MinGWAS p-value (MinGWASadjustedP), unadjusted MinGWAS
+#' p-value (MinGWASrawP) of all SNPs. Minor allele frequency (MAF) will be also
+#' included if user define available frequency data path \code{mafFilePath}.
 #'
-#' \code{Summary.csv}.
+#' \code{SummaryGetI.txt}: This table contains mean chi-square (square of test
+#' statistics) of all SNPs before adjustment (RawMeanX2), Genomic control value
+#' (GClambda), getI result (EstInf) and mean chi-square of all SNPs after getI
+#' based adjustment (AdjMeanX2) for each GWAS (traitName).
+#'
+#' \code{SummaryGetPsi.txt}: This table contains Pearson correlation coefficient
+#' of test statistics from all SNPs (StatCor), getPsi result (Psi) and getPi
+#' result (considering all SNPs, allPi; considering only significant SNPs,
+#' sigPi) for all GWAS pairs (GWAS1 and GWAS2).
+#'
+#' \code{EbICoW.txt}: This table contains effect of EbICoW GWAS (define as mean
+#' chi-square of all SNPs minus one, AllEff), Equivalent sample size (Ess),
+#' EbICoW GWAS combination members (GWAS*), corresponding weight of effect size
+#' in combination (bw*), corresponding weight of test statistics in combination
+#' (tw*) and rounds of all iterations involved in combine (r*) for each EbICoW
+#' GWAS (traitName).
+#'
+#' \code{SummaryEbICoWGetPsi.txt}: This table contains Pearson correlation
+#' coefficient of test statistics from all SNPs (StatCor), getPsi result (Psi)
+#' and getPi result (considering all SNPs, allPi; considering only significant
+#' SNPs, sigPi) for all EbICoW GWAS pairs (GWAS1 and GWAS2).
+#'
+#' \code{Summaryi-EbICoW.txt}:  This table contains the details of each i-EbICoW
+#' iteration round.
+#' 1) Iteration round count (Round).
+#' 2) Two GWASs used in the iteration (GWAS1 and GWAS2).
+#' 3) Name of combined GWAS (NewGWAS).
+#' 4) Type of Pi and h chosen by optimize function (Piall and hall, AEC; Pisig
+#' and hsig, SEC; Pistb and hstb, STB).
+#' 5) Whether pass evaluation of evaluate function (Evaluate).
+#' 6) Effect of GWAS1, GWAS2 and NewGWAS (define as mean chi-square of all SNPs
+#' minus one, Eff1X2, Eff2X2	and NewEffX2).
+#' 7) getPsi and getPi result (Psi; considering all SNPs, allPi; considering
+#' only significant SNPs, sigPi).
+#' 8) Significant SNP number using parameter threshold \code{pMain}, including
+#' in GWAS1 (sigSNP1N), GWAS2 (sigSNP2N), MinGWAS of GWAS1 and GWAS2
+#' (sigSNPminN), combined GWAS using AEC (sigSNPAECN), combined GWAS using SEC
+#' (sigSNPSECN), combined GWAS using STB (sigSNPSTBN), combined GWAS using Wald
+#' test (sigSNPWDN), intersection of AEC combined GWAS and GWAS1-GWAS2 union
+#' (sigSNPAECuniN), intersection of AEC combined GWAS and GWAS1-GWAS2 union
+#' (sigSNPSECuniN), intersection of AEC combined GWAS and GWAS1-GWAS2 union
+#' (sigSNPSTBuniN), intersection of AEC combined GWAS and GWAS1-GWAS2
+#' intersection (sigSNPAECinterN), intersection of AEC combined GWAS and
+#' GWAS1-GWAS2 intersection (sigSNPSECinterN), intersection of AEC combined GWAS
+#' and GWAS1-GWAS2 intersection (sigSNPSTBinterN). 9) Equivalent sample size of
+#' GWAS1, GWAS2 and NewGWAS (Ess1, Ess2 and EssNew), 10) Weight of effect size
+#' used in combining GWAS1 and GWAS2 chosen by optimize function (bw1 and bw2),
+#' 11) Weight of test statistics used in combining GWAS1 and GWAS2 chosen by
+#' optimize function (tw1 and tw2).
+#'
+#' \code{NullCGWAScorrection.txt}: This dataset contains LOESS model samples
+#' (ExpectedQuantile and ObservedP) simulated in getCoef function using in
+#' adjusting C-GWAS result.
+#'
+#' \code{NullCGWASdistribution.jpg}: Simulated null distributions of the
+#' unadjusted p-values (gray) and p-values corrected using the getCoef function
+#' (orange) are compared with the uniform distribution (black) for C-GWAS
+#' simulation. 95% confidence interval is indicated using dashed lines.
+#'
+#' \code{NullMinpcorrection.txt}: This dataset contains LOESS model samples
+#' (ExpectedQuantile and ObservedP) simulated in getCoef function using in
+#' adjusting MinGWAS result.
+#'
+#' \code{NullMinpdistribution.jpg}: Simulated null distributions of the
+#' unadjusted p-values (gray) and p-values corrected using the getCoef function
+#' (orange) are compared with the uniform distribution (black) for MinGWAS
+#' simulation. 95% confidence interval is indicated using dashed.
 #'
 #' @examples
 #'
-#' gwasFileDir <- system.file("extdata", package = "CGWAS")
-#' gwasFileName <- c("phe1.assoc", "phe2.assoc", "phe3.assoc",
-#'                   "phe4.assoc", "phe5.assoc")
-#' gwasFilePath <- file.path(gwasFileDir, gwasFileName)
-#' assocColInx <- c(1, 2, 3, 4, 5)
+#' ExDataDir <- system.file("extdata", package = "CGWAS")
+#' gwasFileName <- c("AlL-ChL.assoc", "AlL-Sn.assoc", "EnL-AlL.assoc",
+#'                   "EnL-ChL.assoc", "Ls-ChL.assoc", "N-EnL.assoc",
+#'                   "N-Prn.assoc", "Prn-AlL.assoc", "Prn-EnL.assoc",
+#'                   "Prn-Sn.assoc", "Sn-ChL.assoc", "Sn-Ls.assoc")
+#' gwasFilePath <- file.path(ExDataDir, gwasFileName)
+#' snpFilePath <- file.path(ExDataDir, 'SnpInfo')
 #' outputPath <- getwd()
-#' traitName <- c("phe1", "phe2", "phe3", "phe4", "phe5")
-#' simulTime <- 200
+#' traitName <- c("AlL-ChL", "AlL-Sn", "EnL-AlL",
+#'                "EnL-ChL", "Ls-ChL", "N-EnL",
+#'                "N-Prn", "Prn-AlL", "Prn-EnL",
+#'                "Prn-Sn", "Sn-ChL", "Sn-Ls")
+#' mafFilePath <- file.path(ExDataDir, 'MAF')
+#' indSNPN = 1e5
 #'
-#' cgwas(gwasFilePath, assocColInx, outputPath,
-#'       traitName = traitName, simulTime = simulTime)
+#' cgwas(gwasFilePath, snpFilePath, outputPath,
+#'       traitName = traitName, mafFilePath = mafFilePath, indSNPN = indSNPN)
 #'
-#' @expose
+#' @export
 cgwas <- function(gwasFilePath,
-                  assocColInx,
+                  snpFilePath,
+                  outputPath,
                   traitName = basename(gwasFilePath[1]),
                   exNa = TRUE,
                   mafFilePath = NULL,
-                  outputPath,
                   keepIEb = FALSE,
                   threadN = ceiling(parallel::detectCores()/2),
                   indSNPN = 1e6,
@@ -98,17 +254,18 @@ cgwas <- function(gwasFilePath,
   / ____/      / ____/| |     / //   |  / ___/
  / /   ______ / / __  | | /| / // /| |  \\__ \\
 / /___/_____// /_/ /  | |/ |/ // ___ | ___/ /
-\\____/       \\____/   |__/|__//_/  |_|/____/      version 1.9.1")
+\\____/       \\____/   |__/|__//_/  |_|/____/      version 1.9.1\n\n")
 
-  cgwasenv <- list()
+  cgwasenv <- CGWAS_ENV$new()
 
   # A string list of path to GWASs summary data files.
   # expose
   cgwasenv$.GWAS_FILE_PATH <- gwasFilePath
 
-  # Column number of SNP index (CHR & BP & SNP) and association data (BETA & P)
+  # A string list of path to GWASs summary data files.
   # expose
-  cgwasenv$.ASSOC_COLUMN_INDEX <- assocColInx
+  cgwasenv$.SNP_FILE_PATH <- snpFilePath
+  # cgwasenv$.ASSOC_COLUMN_INDEX <- assocColInx
 
   # A list of trait names.
   # expose
@@ -117,10 +274,6 @@ cgwas <- function(gwasFilePath,
   # Trait numbers.
   # hide
   cgwasenv$.TRAIT_NUM <- length(cgwasenv$.TRAIT_NAME)
-
-  # SNP numbers.
-  # hide
-  cgwasenv$.SNP_N <- length(readLines(cgwasenv$.GWAS_FILE_PATH[1])) - 1
 
   # Exclude NA (exclude SNP with NA in at least one GWAS, otherwise replace NA with BETA=0 and P=1)
   # expose
@@ -199,7 +352,7 @@ cgwas <- function(gwasFilePath,
   # main effect threshold
   # >=3/1e4, default 3/indSNPN
   # expose
-  if (pMain < 3/1e4) {
+  if (pMain <= 0 | pMain > 3/1e4) {
     return(message("ERROR: parament pMain invalid!"))
   } else {
     cgwasenv$.P_MAIN_EFFECT <- pMain
@@ -281,62 +434,59 @@ cgwas <- function(gwasFilePath,
     cgwasenv$.LOCI_INTER <- lociInr
   }
 
-  # create directory of intermediate result
+  # create directory of output
   cgwasenv$.CGWAS_DETAIL_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Details")
   cgwasenv$.CGWAS_iEbICoW_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Details", "i-EbICoW")
   cgwasenv$.CGWAS_RESULT_PATH <- file.path(cgwasenv$.CGWAS_DIR, "Result")
-  dir.create(cgwasenv$.CGWAS_TEMPDATA_PATH, recursive = T, showWarnings = F)
-  dir.create(cgwasenv$.CGWAS_COLDATA_PATH, recursive = T, showWarnings = F)
+  dir.create(cgwasenv$.CGWAS_DETAIL_PATH, recursive = T, showWarnings = F)
+  dir.create(cgwasenv$.CGWAS_iEbICoW_PATH, recursive = T, showWarnings = F)
   dir.create(cgwasenv$.CGWAS_RESULT_PATH, recursive = T, showWarnings = F)
+  if (file.exists(file.path(cgwasenv$.CGWAS_RESULT_PATH, 'LogFile'))) {
+    file.remove(file.path(cgwasenv$.CGWAS_RESULT_PATH, 'LogFile'))
+  }
 
-  # Send R Output to a File
-  sink(file.path(cgwasenv$.CGWAS_RESULT_PATH, 'cgwas.log'),
-       append=FALSE, split=TRUE)
   # output basic paramenters
   paramOutput(cgwasenv)
 
   # Step1 Data formating
   ts <- Sys.time()
   step1(cgwasenv)
-  print(paste0('Step 1 takes ',
-               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
-               'Secs.'))
+  logOutput('Step 1 takes ',
+            round(as.numeric(difftime(Sys.time(), ts, units = 'secs')), 1),
+            ' Secs.\n\n\n', cgwasenv = cgwasenv)
 
-  # Step2 GetI
+    # Step2 GetI
   ts <- Sys.time()
   step2(cgwasenv)
-  print(paste0('Step 2 takes ',
-               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
-               'Secs.'))
+  logOutput('Step 2 takes ',
+            round(as.numeric(difftime(Sys.time(), ts, units = 'secs')), 1),
+            ' Secs.\n\n\n', cgwasenv = cgwasenv)
 
   # Step3 GetPsi
   ts <- Sys.time()
   step3(cgwasenv)
-  print(paste0('Step 3 takes ',
-               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
-               'Secs.'))
+  logOutput('Step 3 takes ',
+            round(as.numeric(difftime(Sys.time(), ts, units = 'secs')), 1),
+            ' Secs.\n\n\n', cgwasenv = cgwasenv)
 
   # Step4 i-EbICoW
   ts <- Sys.time()
   step4(cgwasenv)
-  print(paste0('Step 4 takes ',
-               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
-               'Secs.'))
+  logOutput('Step 4 takes ',
+            round(as.numeric(difftime(Sys.time(), ts, units = 'secs')), 1),
+            ' Secs.\n\n\n', cgwasenv = cgwasenv)
 
   # Step5 Truncated Wald Test
   ts <- Sys.time()
   step5(cgwasenv)
-  print(paste0('Step 5 takes ',
-               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
-               'Secs.'))
+  logOutput('Step 5 takes ',
+            round(as.numeric(difftime(Sys.time(), ts, units = 'secs')), 1),
+            ' Secs.\n\n\n', cgwasenv = cgwasenv)
 
   # Step6 Summary of C-GWAS
   ts <- Sys.time()
   step6(cgwasenv)
-  print(paste0('Step 6 takes ',
-               as.numeric(difftime(Sys.time(), ts, units = 'secs')),
-               'Secs.'))
-
-  # R Output restoring default values
-  sink()
+  logOutput('Step 6 takes ',
+            round(as.numeric(difftime(Sys.time(), ts, units = 'secs')), 1),
+            ' Secs.\n\n\n', cgwasenv = cgwasenv)
 }

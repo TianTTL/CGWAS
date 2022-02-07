@@ -6,55 +6,193 @@
 \usage{
 cgwas(
   gwasFilePath,
-  assocColInx,
+  snpFilePath,
   outputPath,
+  traitName = basename(gwasFilePath[1]),
+  exNa = TRUE,
   mafFilePath = NULL,
+  keepIEb = FALSE,
   threadN = ceiling(parallel::detectCores()/2),
-  traitName = NULL,
   indSNPN = 1e+06,
-  simulTime = NULL,
-  ebicoPwrInc = 1.1,
-  sampleNInc = 0.7
+  simulDep = 100,
+  pStudy = 0.05/indSNPN,
+  pSugst = 1/indSNPN,
+  pMain = 3/indSNPN,
+  ebicoPwrInc = 1,
+  minCorDiff = 0.05,
+  hiCorRestc = 0.5,
+  sampleNInc = 0.5,
+  twtStCo = 10^(seq(0, 1 - ceiling(log10(indSNPN)), -1/3))[-1],
+  LoInrP = c(0.05, 0.001),
+  LoSpanV = c(0.03, 0.1, 0.75),
+  lociInr = 250000
 )
 }
 \arguments{
-\item{gwasFilePath}{A string list of path to GWASs summary data files.}
+\item{gwasFilePath}{a string list containg the paths to GWASs summary files.}
 
-\item{assocColInx}{A number list indicates column number of SNP index (CHR &
-BP & SNP) and association result (BETA & P).}
+\item{snpFilePath}{a string indicating path to SNP information file. The SNP
+information file has three columns, which represent CHR, BP and SNP
+respectively.}
 
-\item{outputPath}{Result output directory.}
+\item{outputPath}{a string indicating path to result output directory.}
 
-\item{mafFilePath}{Path to allele frequency file.}
+\item{traitName}{a string list of trait names.}
 
-\item{threadN}{The number of threads for parallel computing. The default value
-is half of the maximum number of cores on the hardware.}
+\item{exNa}{logical. If \code{TRUE}, SNPs with NA in at least one GWAS will
+be removed; if If \code{FALSE}, the NA is replaced with BETA=0 and P=1.}
 
-\item{traitName}{A list of trait names.}
+\item{mafFilePath}{a string indicating path to MAF file.}
 
-\item{indSNPN}{Independent SNPs number.}
+\item{keepIEb}{logical. If \code{TRUE},, BETA and STAT of all i-EbICoW
+combinations will be saved in \code{Details/i-EbICoW}.}
 
-\item{simulTime}{Number of simulations for multiple testing correction. This
-parameter greatly affects the operating efficiency.}
+\item{threadN}{number of threads to be used for parallel computing. The
+default value is half of the maximum number of cores
+on the hardware.}
 
-\item{ebicoPwrInc}{Minimum EbICo power increase ratio.}
+\item{indSNPN}{independent SNPs number, which should not be smaller than
+10,000 and a multiple of 500. The default value is 1e6.}
 
-\item{sampleNInc}{Equivalent sample size in EbICo increase ratio.}
+\item{simulDep}{an integer specifying quantile simulation depth, which should
+not be smaller than 100 and a multiple of 100. The default value is 100.}
+
+\item{pStudy}{study-wide significant threshold, which should
+take values in \code{(0,5e-6]}. The default value is 0.05/indSNPN}
+
+\item{pSugst}{suggestive significant threshold, which should
+take values in \code{(0,1e-4]}. The default value is 1/indSNPN}
+
+\item{pMain}{main effect threshold, which should take values in \code{(0,3/1e4]}.
+The default value is 3/indSNPN.}
+
+\item{ebicoPwrInc}{minimum EbICoW power increase ratio, which should greater
+than 0. The default value is 1.}
+
+\item{minCorDiff}{minimum correlation difference, which should greater than
+0. The default value is 0.05.}
+
+\item{hiCorRestc}{high correlation restriction, which should take values in
+\code{(0,1)}. The default value is 0.05.}
+
+\item{sampleNInc}{equivalent sample size in EbICo increase ratio, which
+should take values in \code{(0,1)}. The default value is 0.05.}
+
+\item{twtStCo}{a vector of TWT stratification cutoffs, which should take
+values in \code{(0,1)}. The default value is
+\code{10^(seq(0,1-ceiling(log10(indSNPN)),-1/3))[-1]}.}
+
+\item{LoInrP}{a vector of LOESS interval p, which should be in decreased
+order and take values in \code{[10/indSNPN,0.1]}. The default value is
+\code{c(0.05,0.001)}.}
+
+\item{LoSpanV}{a vector of LOESS span, which should take values in \code{(0,1)}.
+The default value is \code{c(0.03,0.1,0.75)}. The length of \code{LoSpanV}
+should equal to \code{length(LoInrP)+1}.}
+
+\item{lociInr}{an integer indicating loci interval, which should take values
+in \code{[1e5,1e6]}. The default value is 2.5e5.}
 }
 \value{
-Several .csv files and figures will be generated in \code{outputPath}.
+Several files and figures will be generated in \code{outputPath}.
 
-\code{MutipleTestingCorrection.txt}.
+\code{CGWAS-GWAS.jpg}: Combined Manhattan plots displays adjusted C-GWAS
+p-value (upper parts) and adjusted MinGWAS p-value (lower parts) of all SNPs
+in –log10 scale. The study-wide significance is indicated using dashed lines
+and the suggestive significance is indicated using solid lines. Loci with the
+lead SNP passing the study-wide significant line on both sides are
+highlighted using different colors and shapes. One side’s unique loci are
+indicated in orange diamond. Two sides’ overlapped loci are indicated in
+green cross.
 
-\code{GWAShits.csv}.
+\code{CGWASminpQQ.jpg}: Adjusted p-values in –log10 scale (y-axis) of MinGWAS
+(blue) and C-GWAS (orange) for all SNPs are plotted against their expected
+uniformly distributed quantile in –log10 scale (x-axis) under the null.
 
-\code{EbICohits.csv}.
+\code{SummarySugSigSNP.csv}: This table contains the SNP passing the
+suggestive significant cut-off of either C-GWAS or MinGWAS. For each SNP, its
+position (CHR and BP), rsID (SNP), adjusted C-GWAS p-value (C-GWAS-P) and
+MinGWAS p-value (MinGWAS-P) is always provided. Minor allele frequency (MAF)
+will be provided if user define available frequency data path \code{mafFilePath}.
+All SNPs were clustered to different loci base on distance parameter
+\code{lociInr}. Loci are distinguished using the descending order of significance
+of lead SNP in each loci from C-GWAS (C-GWAS-Loci) and MinGWAS (MinGWAS-Loci)
+respectively. NA indicates the SNP is not suggestive significant in C-GWAS or
+MinGWAS.
 
-\code{SWaThits.csv}.
+\code{C-GWAS.p}: This dataset contains position (CHR and BP), rsID (SNP),
+adjusted C-GWAS p-value (C-GWASadjustedP), unadjusted C-GWAS p-value
+(C-GWASrawP), adjusted MinGWAS p-value (MinGWASadjustedP), unadjusted MinGWAS
+p-value (MinGWASrawP) of all SNPs. Minor allele frequency (MAF) will be also
+included if user define available frequency data path \code{mafFilePath}.
 
-\code{Summaryhits.csv}.
+\code{SummaryGetI.txt}: This table contains mean chi-square (square of test
+statistics) of all SNPs before adjustment (RawMeanX2), Genomic control value
+(GClambda), getI result (EstInf) and mean chi-square of all SNPs after getI
+based adjustment (AdjMeanX2) for each GWAS (traitName).
 
-\code{Summary.csv}.
+\code{SummaryGetPsi.txt}: This table contains Pearson correlation coefficient
+of test statistics from all SNPs (StatCor), getPsi result (Psi) and getPi
+result (considering all SNPs, allPi; considering only significant SNPs,
+sigPi) for all GWAS pairs (GWAS1 and GWAS2).
+
+\code{EbICoW.txt}: This table contains effect of EbICoW GWAS (define as mean
+chi-square of all SNPs minus one, AllEff), Equivalent sample size (Ess),
+EbICoW GWAS combination members (GWAS*), corresponding weight of effect size
+in combination (bw*), corresponding weight of test statistics in combination
+(tw*) and rounds of all iterations involved in combine (r*) for each EbICoW
+GWAS (traitName).
+
+\code{SummaryEbICoWGetPsi.txt}: This table contains Pearson correlation
+coefficient of test statistics from all SNPs (StatCor), getPsi result (Psi)
+and getPi result (considering all SNPs, allPi; considering only significant
+SNPs, sigPi) for all EbICoW GWAS pairs (GWAS1 and GWAS2).
+
+\code{Summaryi-EbICoW.txt}:  This table contains the details of each i-EbICoW
+iteration round.
+1) Iteration round count (Round).
+2) Two GWASs used in the iteration (GWAS1 and GWAS2).
+3) Name of combined GWAS (NewGWAS).
+4) Type of Pi and h chosen by optimize function (Piall and hall, AEC; Pisig
+and hsig, SEC; Pistb and hstb, STB).
+5) Whether pass evaluation of evaluate function (Evaluate).
+6) Effect of GWAS1, GWAS2 and NewGWAS (define as mean chi-square of all SNPs
+minus one, Eff1X2, Eff2X2	and NewEffX2).
+7) getPsi and getPi result (Psi; considering all SNPs, allPi; considering
+only significant SNPs, sigPi).
+8) Significant SNP number using parameter threshold \code{pMain}, including
+in GWAS1 (sigSNP1N), GWAS2 (sigSNP2N), MinGWAS of GWAS1 and GWAS2
+(sigSNPminN), combined GWAS using AEC (sigSNPAECN), combined GWAS using SEC
+(sigSNPSECN), combined GWAS using STB (sigSNPSTBN), combined GWAS using Wald
+test (sigSNPWDN), intersection of AEC combined GWAS and GWAS1-GWAS2 union
+(sigSNPAECuniN), intersection of AEC combined GWAS and GWAS1-GWAS2 union
+(sigSNPSECuniN), intersection of AEC combined GWAS and GWAS1-GWAS2 union
+(sigSNPSTBuniN), intersection of AEC combined GWAS and GWAS1-GWAS2
+intersection (sigSNPAECinterN), intersection of AEC combined GWAS and
+GWAS1-GWAS2 intersection (sigSNPSECinterN), intersection of AEC combined GWAS
+and GWAS1-GWAS2 intersection (sigSNPSTBinterN). 9) Equivalent sample size of
+GWAS1, GWAS2 and NewGWAS (Ess1, Ess2 and EssNew), 10) Weight of effect size
+used in combining GWAS1 and GWAS2 chosen by optimize function (bw1 and bw2),
+11) Weight of test statistics used in combining GWAS1 and GWAS2 chosen by
+optimize function (tw1 and tw2).
+
+\code{NullCGWAScorrection.txt}: This dataset contains LOESS model samples
+(ExpectedQuantile and ObservedP) simulated in getCoef function using in
+adjusting C-GWAS result.
+
+\code{NullCGWASdistribution.jpg}: Simulated null distributions of the
+unadjusted p-values (gray) and p-values corrected using the getCoef function
+(orange) are compared with the uniform distribution (black) for C-GWAS
+simulation. 95% confidence interval is indicated using dashed lines.
+
+\code{NullMinpcorrection.txt}: This dataset contains LOESS model samples
+(ExpectedQuantile and ObservedP) simulated in getCoef function using in
+adjusting MinGWAS result.
+
+\code{NullMinpdistribution.jpg}: Simulated null distributions of the
+unadjusted p-values (gray) and p-values corrected using the getCoef function
+(orange) are compared with the uniform distribution (black) for MinGWAS
+simulation. 95% confidence interval is indicated using dashed.
 }
 \description{
 A whole solution for illustrating multi-trait effect of all SNPs with a set
@@ -65,11 +203,6 @@ C-GWAS begins with GWASs summary as inputs and outputs a single vector of
 combined p-values testing if the null is deviated. For each SNP, the null is
 the absence of any effect on all traits, and the alternative is that its
 effect deviates from 0 for at least one trait.
-
-To estimate the effect of each SNP more accurately, several data organization
-standard should be noticed. (1) The effect size in each GWAS should be in the
-same scale. (2) In one GWAS, the minimum samples size of each SNP should
-be no less than 60% of the median.
 
 C-GWAS integrates two different statistical methods to ensure the optimal
 power under various and complex scenarios while keeping a stable study-wide
@@ -85,19 +218,45 @@ determined under a series of preset thresholds.
 C-GWAS controls the study-wide type-I error rate in an empirical manner via
 simulations and adjust the resultant p-values in such a way that they are
 directly comparable with those from traditional GWAS of a single trait.
+
+The summary and immediate results of C-GWAS analysis are saved in the output
+directory \code{outputPath} defined by user. There are two directorys in this
+directory: \code{Result/} and \code{Details/}. The former contains the
+summary results, including 1) Manhattan plots \code{CGWAS-GWAS.jpg} and 2) Q-Q
+plots \code{CGWASminpQQ.jpg} of C-GWAS and MinGWAS, 3) suggestively significant
+SNPs table \code{SummarySugSigSNP.csv}, and 4) p-values of all SNPs \code{C-GWAS.p}.
+The latter contains the immediate result, including 1) result of getI
+function applied to all GWASs \code{SummaryGetI.txt}; 2) result of getPsi function
+applied to all GWAS pairs \code{SummaryGetPsi.txt}, 3) summary of result of
+i-EbICoW \code{EbICoW.txt}, 4) result of getPsi function applied to all EbICoW
+GWAS pairs \code{SummaryEbICoWGetPsi.txt}, 5) records of all i-EbICoW iterations
+\code{Summaryi-EbICoW.txt}, 6) C-GWAS LOESS model samples simulated in getCoef
+function \code{NullCGWAScorrection.txt}, 7) performance of getCoef based
+correction in C-GWAS simulation \code{NullCGWASdistribution.jpg}, 8) MinGWAS LOESS
+model samples simulated in getCoef function \code{NullMinpcorrection.txt}, 9)
+performance of getCoef based correction in MinGWAS simulation
+\code{NullMinpdistribution.jpg}. If user choose to keep i-EbICoW output (Kio), all
+summary statistics (effect sizes, *.beta and test statistics, *.stat) of
+EbICoW GWASs would be kept in directory \code{Details/i-EbICoW}.
 }
 \examples{
 
-gwasFileDir <- system.file("extdata", package = "CGWAS")
-gwasFileName <- c("phe1.assoc", "phe2.assoc", "phe3.assoc",
-                  "phe4.assoc", "phe5.assoc")
-gwasFilePath <- file.path(gwasFileDir, gwasFileName)
-assocColInx <- c(1, 2, 3, 4, 5)
+ExDataDir <- system.file("extdata", package = "CGWAS")
+gwasFileName <- c("AlL-ChL.assoc", "AlL-Sn.assoc", "EnL-AlL.assoc",
+                  "EnL-ChL.assoc", "Ls-ChL.assoc", "N-EnL.assoc",
+                  "N-Prn.assoc", "Prn-AlL.assoc", "Prn-EnL.assoc",
+                  "Prn-Sn.assoc", "Sn-ChL.assoc", "Sn-Ls.assoc")
+gwasFilePath <- file.path(ExDataDir, gwasFileName)
+snpFilePath <- file.path(ExDataDir, 'SnpInfo')
 outputPath <- getwd()
-traitName <- c("phe1", "phe2", "phe3", "phe4", "phe5")
-simulTime <- 200
+traitName <- c("AlL-ChL", "AlL-Sn", "EnL-AlL",
+               "EnL-ChL", "Ls-ChL", "N-EnL",
+               "N-Prn", "Prn-AlL", "Prn-EnL",
+               "Prn-Sn", "Sn-ChL", "Sn-Ls")
+mafFilePath <- file.path(ExDataDir, 'MAF')
+indSNPN = 1e5
 
-cgwas(gwasFilePath, assocColInx, outputPath,
-      traitName = traitName, simulTime = simulTime)
+cgwas(gwasFilePath, snpFilePath, outputPath,
+      traitName = traitName, mafFilePath = mafFilePath, indSNPN = indSNPN)
 
 }

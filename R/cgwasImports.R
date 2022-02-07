@@ -5,5 +5,6 @@
 #' @importFrom parallel makeCluster stopCluster clusterEvalQ
 #' @importFrom MASS mvrnorm
 #' @importFrom iterators iter
+#' @importFrom methods setRefClass new
 #'
 NULL

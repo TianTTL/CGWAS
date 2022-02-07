@@ -1,14 +1,13 @@
 # Data formating
 step1 <- function(cgwasenv) {
-  print("========== C-GWAS step 1 : Data formating ==========")
-  print("")
-  print(paste0("Read and format ",length(cgwasenv$.TRAIT_NAME)," GWASs .."))
+  logOutput("========== C-GWAS step 1 : Data formating ==========\n\n", cgwasenv = cgwasenv)
+  logOutput("Read and format ",length(cgwasenv$.TRAIT_NAME)," GWASs ..\n", cgwasenv = cgwasenv)
 
   if (cgwasenv$.TRAIT_NUM <= 1)  {
     stop("Error: Traits number must larger than 1.")
   } # check equality among all element in snp.N
 
-  threadNCur <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM)
+  threadNCur <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM + 1)
   cl <- makeCluster(threadNCur)
   registerDoParallel(cl)
   # globalVariables(c("i"))
@@ -20,18 +19,18 @@ step1 <- function(cgwasenv) {
   naid <- unique(unlist(naidList))
   naid.Len <- length(naid)
   if(naid.Len!=0){
-    if(Ena) {
-      print(paste0(naid.Len," SNPs with NA excluded"))
+    if(cgwasenv$.EXCLUDE_NA) {
+      logOutput(naid.Len," SNPs with NA excluded\n", cgwasenv = cgwasenv)
     } else {
-      print(paste0(naid.Len," SNPs with NA set in 0 effect"))
+      logOutput(naid.Len," SNPs with NA set in 0 effect\n", cgwasenv = cgwasenv)
     }
   } else {
-    print("0 SNP with NA found")
+    logOutput("0 SNP with NA found\n", cgwasenv = cgwasenv)
   }
 
   if (cgwasenv$.MAF_FILE_EXIST) {
     mafv <- as.data.frame(data.table::fread(cgwasenv$.MAF_FILE_PATH,
-                                            header=F, stringsAsFactors=F,
+                                            header=T, stringsAsFactors=F,
                                             nThread = 1))[,1]
     if (cgwasenv$.EXCLUDE_NA & naid.Len != 0) {
       mafv <- mafv[-naid]
@@ -46,20 +45,17 @@ step1 <- function(cgwasenv) {
   if (length(unique(snp.N)) > 1)  {
     stop("Error: SNP number in each files are not equal.")
   }
+  cgwasenv$.SNP_N <- as.integer(unique(snp.N))
 
   stopCluster(cl)
 
-  print("")
-  print("C-GWAS step 1 completed")
-  print("")
-  print("")
+  logOutput("\nC-GWAS step 1 completed\n", cgwasenv = cgwasenv)
 }
 
 # GetI
 step2 <- function(cgwasenv) {
-  print("========== C-GWAS step 2 : GetI ==========")
-  print("")
-  print(paste0("Estimating inflation for ", cgwasenv$.TRAIT_NUM, " GWASs .."))
+  logOutput("========== C-GWAS step 2 : GetI ==========\n\n", cgwasenv = cgwasenv)
+  logOutput("Estimating inflation for ", cgwasenv$.TRAIT_NUM, " GWASs ..\n", cgwasenv = cgwasenv)
 
   inseq <- ppoints(2000)
 
@@ -109,38 +105,42 @@ step2 <- function(cgwasenv) {
                        file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[i], ".stat")),
                        row.names = F, col.names = F, quote = F)
   }
-  print("Adjusted GWASs test statistics written to Details/i-EbICoW/")
+  logOutput("Adjusted GWASs test statistics written to Details/i-EbICoW/\n", cgwasenv = cgwasenv)
 
   colnames(resinfm) <- c("RawMeanX2","GClambda","EstInf","AdjMeanX2")
   write.table(cbind(TraitName = cgwasenv$.TRAIT_NAME, signif(resinfm, 7)),
               file.path(cgwasenv$.CGWAS_DETAIL_PATH, "SummaryGetI.txt"),
               col.names = T, row.names = F, quote = F, sep = "\t")
-  print("Summary of GetI written to Details/SummaryGetI.txt")
+  logOutput("Summary of GetI written to Details/SummaryGetI.txt\n", cgwasenv = cgwasenv)
 
   stopCluster(cl)
 
-  print("")
-  print("C-GWAS step 2 completed")
-  print("")
-  print("")
+  logOutput("\nC-GWAS step 2 completed\n", cgwasenv = cgwasenv)
 }
 
 # GetPsi
 step3 <- function(cgwasenv) {
-  print("========== C-GWAS step 3 : GetPsi ==========")
-  print("")
-  print(paste0("Estimating background correlation for ",
-               nrow(pairma <- t(combn(seq_len(cgwasenv$.TRAIT_NUM), 2))),
-               " GWAS pairs .."))
+  logOutput("========== C-GWAS step 3 : GetPsi ==========\n\n", cgwasenv = cgwasenv)
+  logOutput("Estimating background correlation for ",
+            nrow(pairma <- t(combn(seq_len(cgwasenv$.TRAIT_NUM), 2))),
+            " GWAS pairs ..\n", cgwasenv = cgwasenv)
+
+  minsnpn = 1e5
+  maSpltRw = ceiling(cgwasenv$.SNP_N / minsnpn)
+  maSpltN = floor(cgwasenv$.SNP_N / maSpltRw) * maSpltRw
+  resinfm <- as.matrix(
+               read.table(file.path(cgwasenv$.CGWAS_DETAIL_PATH, "SummaryGetI.txt"),
+                          header = T)[,-1])
 
   threadNCur <- min(cgwasenv$.PARAL_NUM, nrow(pairma))
   cl <- makeCluster(threadNCur)
+  # globalVariables(c('i'))
+  i <- 1 # assign parallel control variants
 
   tresm <- foreach(i = 1:nrow(pairma),
                    .combine = "rbind",
                    .inorder = T) %dopar%
     CorE.ICE(pairma[i, 1], pairma[i, 2], resinfm, maSpltRw, maSpltN, cgwasenv)
-  tresm <- matrix(tresm, nrow = nrow(pairma), byrow = T)
   tresm <- signif(tresm, 7)
 
   corm <- cbind(cgwasenv$.TRAIT_NAME[pairma[,1]],
@@ -158,21 +158,17 @@ step3 <- function(cgwasenv) {
   write.table(corm[,c(1,2,5,6,8,12)],
               file.path(cgwasenv$.CGWAS_DETAIL_PATH, "SummaryGetPsi.txt"),
               row.names = F, quote = F, sep = "\t")
-  print("Summary of GetPsi written to Details/SummaryGetPsi.txt")
+  logOutput("Summary of GetPsi written to Details/SummaryGetPsi.txt\n", cgwasenv = cgwasenv)
 
   stopCluster(cl)
 
-  print("")
-  print("C-GWAS step 3 completed")
-  print("")
-  print("")
+  logOutput("\nC-GWAS step 3 completed\n", cgwasenv = cgwasenv)
 }
 
 # EbICo
 step4 <- function(cgwasenv) {
-  print("========== C-GWAS step 4 : i-EbICoW ==========")
-  print("")
-  print("Iteration preparing ..")
+  logOutput("========== C-GWAS step 4 : i-EbICoW ==========\n\n", cgwasenv = cgwasenv)
+  logOutput("Iteration preparing ..\n", cgwasenv = cgwasenv)
 
   threadNCur <- min(cgwasenv$.PARAL_NUM, cgwasenv$.TRAIT_NUM)
   cl <- makeCluster(threadNCur)
@@ -184,8 +180,8 @@ step4 <- function(cgwasenv) {
   maSpltRw = ceiling(cgwasenv$.SNP_N / minsnpn)
   maSpltN = floor(cgwasenv$.SNP_N / maSpltRw) * maSpltRw
 
-  thresc <- qchisq(cgwasenv$.P_THRD, 1, lower.tail=F)
-  thresw <- qchisq(cgwasenv$.P_THRD, 2, lower.tail=F)
+  thresc <- qchisq(cgwasenv$.P_MAIN_EFFECT, 1, lower.tail=F)
+  thresw <- qchisq(cgwasenv$.P_MAIN_EFFECT, 2, lower.tail=F)
 
   if (cgwasenv$.MAF_FILE_EXIST) {
     mafv <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MAF"),
@@ -197,8 +193,6 @@ step4 <- function(cgwasenv) {
                        header=T, stringsAsFactors=F)
   coridm <- as.matrix(corm.tmp[,1:2])
   cordatm <- as.matrix(corm.tmp[,3:12])
-
-  localsep <- 1e5
 
   n <- cgwasenv$.TRAIT_NUM+1
   AllEff <- as.numeric(c(cordatm[-(1:(n-2))^2/2+(n-0.5)*(1:(n-2))-n+2, 1],
@@ -216,8 +210,7 @@ step4 <- function(cgwasenv) {
   logfm <- c()
   rn <- 1
 
-  print("Iteration start ..")
-  print("")
+  logOutput("Iteration start ..\n\n", cgwasenv = cgwasenv)
 
   while(!(all(abs(cordatm[,6] - cordatm[,4]) + abs(cordatm[,10] - cordatm[,4]) < cgwasenv$.MIN_CORR_DIFF) &
           all(abs(cordatm[,4]) < cgwasenv$.HIGH_CORR_RES))) {
@@ -235,7 +228,7 @@ step4 <- function(cgwasenv) {
     mse <- c(TNm[which(TNm[,1]==selidv[1]), 3], TNm[which(TNm[,1]==selidv[2]), 3])
 
     ttm <- t2m[which((((t2m %*%
-                          solve(matrix(c(1, cordatm[mtarid, 4], cordatm[mtarid, 4], 1), 2))) * t2m) %*%
+                        solve(matrix(c(1, cordatm[mtarid, 4], cordatm[mtarid, 4], 1), 2))) * t2m) %*%
                         c(1, 1))
                      > qchisq(0.01, 2, lower.tail=F)),]
     fm <- ebicocof(cordatm[mtarid,], mse, ttm, thresc)
@@ -252,8 +245,8 @@ step4 <- function(cgwasenv) {
             0.260927307332186 * cordatm[mtarid, 4] ^ 64 +
             0.232255565305109 * cordatm[mtarid, 4] ^ 128 -
             0.27795687154795 * cordatm[mtarid, 4] ^ 256
-    ge1 <- which((ttm[,1]^2) > qchisq(cgwasenv$.P_THRD / efin, 1, lower.tail=F))
-    ge2 <- which((ttm[,2]^2) > qchisq(cgwasenv$.P_THRD / efin, 1, lower.tail=F))
+    ge1 <- which((ttm[,1]^2) > qchisq(cgwasenv$.P_MAIN_EFFECT / efin, 1, lower.tail=F))
+    ge2 <- which((ttm[,2]^2) > qchisq(cgwasenv$.P_MAIN_EFFECT / efin, 1, lower.tail=F))
     ge1c <- which((ttm[,1]^2) > thresc)
     ge2c <- which((ttm[,2]^2) > thresc)
     idg <- union(ge1, ge2)
@@ -277,14 +270,14 @@ step4 <- function(cgwasenv) {
     jeso <- length(intersect(idog, ids))
     jeao <- length(intersect(idog, ida))
 
-    print(paste0(rn, " Round    ", sum((abs(cordatm[,6]-cordatm[,4])+abs(cordatm[,10]-cordatm[,4])>cgwasenv$.MIN_CORR_DIFF)|(abs(cordatm[,4])>cgwasenv$.HIGH_CORR_RES))-1, " Left"))
-    print(paste0(substring(selidv[1],1,70),"  ",signif(cordatm[mtarid,1],3),"  ",gen1))
-    print(paste0(substring(selidv[2],1,70),"  ",signif(cordatm[mtarid,2],3),"  ",gen2))
-    print(paste0(substring(newname,1,70),"  ",signif(cordatm[mtarid,4],3)))
-    print(paste0("using AEC  (",signif(cordatm[mtarid,6],3),")  ",signif(cofm[1,1],3),"  ",signif(cofm[2,1],3)," -> ",een,"/",gen,"(",signif(een/gen*100,3),"%)"))
-    print(paste0("using SEC  (",signif(cordatm[mtarid,10],3),")  ",signif(cofm[1,2],3),"  ",signif(cofm[2,2],3)," -> ",esn,"/",gen,"(",signif(esn/gen*100,3),"%)"))
-    print(paste0("using STB  (",signif(fm[2,9],3),")  ",signif(cofm[1,3],3),"  ",signif(cofm[2,3],3)," -> ",ean,"/",gen,"(",signif(ean/gen*100,3),"%)"))
-    print(paste0("using WDT -> ", ewn, "/", gen, "(", signif(ewn/gen*100, 3), "%)"))
+    logOutput(rn, " Round    ", sum((abs(cordatm[,6]-cordatm[,4])+abs(cordatm[,10]-cordatm[,4])>cgwasenv$.MIN_CORR_DIFF)|(abs(cordatm[,4])>cgwasenv$.HIGH_CORR_RES))-1, " Left\n", cgwasenv = cgwasenv)
+    logOutput(substring(selidv[1],1,70),"  ",signif(cordatm[mtarid,1],3),"  ",gen1, '\n', cgwasenv = cgwasenv)
+    logOutput(substring(selidv[2],1,70),"  ",signif(cordatm[mtarid,2],3),"  ",gen2, '\n', cgwasenv = cgwasenv)
+    logOutput(substring(newname,1,70),"  ",signif(cordatm[mtarid,4],3), '\n', cgwasenv = cgwasenv)
+    logOutput("using AEC  (",signif(cordatm[mtarid,6],3),")  ",signif(cofm[1,1],3),"  ",signif(cofm[2,1],3)," -> ",een,"/",gen,"(",signif(een/gen*100,3),"%)\n", cgwasenv = cgwasenv)
+    logOutput("using SEC  (",signif(cordatm[mtarid,10],3),")  ",signif(cofm[1,2],3),"  ",signif(cofm[2,2],3)," -> ",esn,"/",gen,"(",signif(esn/gen*100,3),"%)\n", cgwasenv = cgwasenv)
+    logOutput("using STB  (",signif(fm[2,9],3),")  ",signif(cofm[1,3],3),"  ",signif(cofm[2,3],3)," -> ",ean,"/",gen,"(",signif(ean/gen*100,3),"%)\n", cgwasenv = cgwasenv)
+    logOutput("using WDT -> ", ewn, "/", gen, "(", signif(ewn/gen*100, 3), "%)\n", cgwasenv = cgwasenv)
 
     rn <- rn+1
 
@@ -304,9 +297,9 @@ step4 <- function(cgwasenv) {
       did <- which(c(een, esn, ean)==max(c(een, esn, ean)))[1]
     }
 
-    if ((c(een, esn, ean)[did]<max(c(gen*cgwasenv$.MIN_EbiCo_POWER_INC, ewn*cgwasenv$.MIN_EbiCo_POWER_INC)))&(abs(cordatm[mtarid, 4])<cgwasenv$.HIGH_CORR_RES)) {
-      print(paste0("Decision -> do not combine"))
-      print("")
+    if ((c(een, esn, ean)[did] < max(c(gen*cgwasenv$.MIN_EbICo_POWER_INC, ewn*cgwasenv$.MIN_EbICo_POWER_INC))) &
+        (abs(cordatm[mtarid, 4])<cgwasenv$.HIGH_CORR_RES)) {
+      logOutput("Decision -> do not combine\n\n", cgwasenv = cgwasenv)
       bkcordatm <- rbind(bkcordatm, cordatm[mtarid,])
       logfm <- rbind(logfm,
                      c(rn-1, selidv, newname, NA, FALSE,
@@ -348,12 +341,11 @@ step4 <- function(cgwasenv) {
       newmse <- median((newt/newb)^2, na.rm=T)
     }
 
-    print(paste0("Equivalent sample size  ", round(mse[1]), " ", round(mse[2]), " -> ", round(newmse)))
-    print(paste0("Mean beta weights  ", signif(bofv[1], 3), " ", signif(bofv[2], 3), "   total ", sum((bofv*dofm[,did]))))
+    logOutput("Equivalent sample size  ", round(mse[1]), " ", round(mse[2]), " -> ", round(newmse), '\n', cgwasenv = cgwasenv)
+    logOutput("Mean beta weights  ", signif(bofv[1], 3), " ", signif(bofv[2], 3), "   total ", sum((bofv*dofm[,did])), '\n', cgwasenv = cgwasenv)
     if((newmse<max(c(mse[1]+mse[2]*cgwasenv$.SAMPLE_SIZE_INC, mse[2]+mse[1]*cgwasenv$.SAMPLE_SIZE_INC))) &
        (abs(cordatm[mtarid, 4])<cgwasenv$.HIGH_CORR_RES)) {
-      print(paste0("Decision -> do not combine"))
-      print("")
+      logOutput("Decision -> do not combine\n\n", cgwasenv = cgwasenv)
       bkcordatm <- rbind(bkcordatm, cordatm[mtarid,])
       logfm <- rbind(logfm,
                      c(rn-1, selidv, newname, c("AEC","SEC","STB")[did], FALSE,
@@ -368,8 +360,7 @@ step4 <- function(cgwasenv) {
       bknum <- bknum+1
       next
     } else{
-      print(paste0("Decision -> use ", c("AEC", "SEC", "STB")[did]))
-      print("")
+      logOutput("Decision -> use ", c("AEC", "SEC", "STB")[did], '\n\n', cgwasenv = cgwasenv)
     }
 
     logfm <- rbind(logfm,
@@ -431,8 +422,7 @@ step4 <- function(cgwasenv) {
                        row.names=F,col.names=F,quote=F)
   }
 
-  print("Iteration end")
-  print("")
+  logOutput("Iteration end\n\n", cgwasenv = cgwasenv)
 
   compm <- bfm <- tfm <- cdm <- rnm <- as.data.frame(rep(NA, sum(!is.na(TNm[,1]))))
   tn <- 1
@@ -484,7 +474,7 @@ step4 <- function(cgwasenv) {
   write.table(cbind(TNm, compm, signif(bfm, 7), signif(tfm, 7), rnm),
               file.path(cgwasenv$.CGWAS_DETAIL_PATH, "EbICoW.txt"),
               row.names=F,quote=F,sep="\t")
-  print("Summary of EbICoW GWASs written to Details/EbICoW.txt")
+  logOutput("Summary of EbICoW GWASs written to Details/EbICoW.txt\n", cgwasenv = cgwasenv)
 
   accorm <- cbind(matrix(coridm[orderid,], ncol=ncol(coridm)), matrix(signif(cordatm[orderid,], 7), ncol=ncol(cordatm)))
   colnames(accorm) <- c("EbICoWGWAS1","EbICoWGWAS2","T1Eff","T2Eff",
@@ -499,29 +489,25 @@ step4 <- function(cgwasenv) {
   write.table(logfm,
               file.path(cgwasenv$.CGWAS_DETAIL_PATH, "Summaryi-EbICoW.txt"),
               row.names=F,quote=F,sep="\t")
+  logOutput("Summary of GetPsi for EbICoW GWASs written to Details/SummaryEbICoWGetPsi.txt\n", cgwasenv = cgwasenv)
+  logOutput("Summary of i-EbICoW iteration written to Details/Summaryi-EbICoW.txt\n", cgwasenv = cgwasenv)
 
   stopCluster(cl)
 
-  print("Summary of GetPsi for EbICoW GWASs written to Details/SummaryEbICoWGetPsi.txt")
-  print("Summary of i-EbICoW iteration written to Details/Summaryi-EbICoW.txt")
-  print("")
-  print("C-GWAS step 4 completed")
-  print("")
-  print("")
+  logOutput("\nC-GWAS step 4 completed\n", cgwasenv = cgwasenv)
 }
 
 # SWaT
 step5 <- function(cgwasenv) {
-  print("========== C-GWAS step 5 : Truncated Wald Test ==========")
-  print("")
-  print("Simulation preparing ..")
+  logOutput("========== C-GWAS step 5 : Truncated Wald Test ==========\n\n", cgwasenv = cgwasenv)
+  logOutput("Simulation preparing ..\n", cgwasenv = cgwasenv)
 
   cl <- makeCluster(cgwasenv$.PARAL_NUM)
   registerDoParallel(cl)
   # globalVariables(c('i', 'j'))
   i <- j <- 1 # assign parallel control variants
 
-  localsep <- 5e4
+  chunkSize <- 5e4
 
   Sind <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "SnpIndex"),
                                           header=T,
@@ -530,107 +516,98 @@ step5 <- function(cgwasenv) {
                         header=T, stringsAsFactors=F)
   maxcn <- (ncol(ACstatm)-2)/4
 
-  statcorm <- gcrom(read.table(file.path(cgwasenv$.CGWAS_DETAIL_PATH, "ACCorrelationStat.txt"),
-                               header=T,stringsAsFactors=F)[,5],length(ACstatm[,1]))
-  bgcorm <- gcrom(read.table(file.path(cgwasenv$.CGWAS_DETAIL_PATH, "ACCorrelationStat.txt"),
-                             header=T,stringsAsFactors=F)[,6],length(ACstatm[,1]))
-  posm <- ptc(bgcorm, statcorm)
+  corm.tmp <- read.table(file.path(cgwasenv$.CGWAS_DETAIL_PATH, "ACCorrelationStat.txt"),
+                         header=T,stringsAsFactors=F)
+  statcorm.ac <- gcrom(corm.tmp[,5],length(ACstatm[,1]))
+  bgcorm.ac <- gcrom(corm.tmp[,6],length(ACstatm[,1]))
+  posm <- ptc(bgcorm.ac, statcorm.ac)
   file.remove(file.path(cgwasenv$.CGWAS_DETAIL_PATH, "ACCorrelationStat.txt"))
 
   corm.tmp <- read.table(file.path(cgwasenv$.CGWAS_DETAIL_PATH, "BCCorrelationStat.txt"),
                          header=T, stringsAsFactors=F)
-  statcorm <- gcrom(corm.tmp[,5],cgwasenv$.TRAIT_NUM)
-  bgcorm <- gcrom(corm.tmp[,6],cgwasenv$.TRAIT_NUM)
-  posmg <- ptc(bgcorm, statcorm)
+  statcorm.bc <- gcrom(corm.tmp[,5],cgwasenv$.TRAIT_NUM)
+  bgcorm.bc <- gcrom(corm.tmp[,6],cgwasenv$.TRAIT_NUM)
+  posmg <- ptc(bgcorm.bc, statcorm.bc)
   file.remove(file.path(cgwasenv$.CGWAS_DETAIL_PATH, "BCCorrelationStat.txt"))
 
-  print(paste0("Max absoluted value of solved EbICoWPsiMatrix : ",signif(posm[[3]],7)))
-  print(paste0("Max absoluted value of solved GWASPsiMatrix : ",signif(posmg[[3]],7)))
-  print("")
-  print(paste0("C-GWAS Simulation start .. (totally ",
+  logOutput("Max absoluted value of solved EbICoWPsiMatrix : ",
+            signif(posm[[3]],7), '\n', cgwasenv = cgwasenv)
+  logOutput("Max absoluted value of solved GWASPsiMatrix : ",
+            signif(posmg[[3]],7), '\n\n', cgwasenv = cgwasenv)
+  logOutput("C-GWAS Simulation start .. (totally ",
                cgwasenv$.SIMUL_DEP * cgwasenv$.IND_SNP_N,
-               " simulated independent SNPs)"))
+               " simulated independent SNPs)\n", cgwasenv = cgwasenv)
 
   cutoff.thv <- qchisq(cgwasenv$.TWT_STRAT_CUT, 1, lower.tail = F)
-  ts <- Sys.time() # test
   simumin <- matrix(nrow = 0, ncol = length(cutoff.thv) + 1)
   for (i in 1:ceiling(cgwasenv$.SIMUL_N / 100)) {
     simumin.tmp <- foreach(j = ((i-1)*100+1) : min(i*100, cgwasenv$.SIMUL_N),
                            .inorder = F,
                            .combine = "rbind") %dopar%
-                    swtrtsimu(cgwasenv$.SIMUL_SNP_N, posmg[[1]], posm[[1]], ACstatm, maxcn, cutoff.thv, cgwasenv)
+                    swtrtsimu(cgwasenv$.SIMUL_SNP_N, posmg[[1]], posm[[1]],
+                              ACstatm, maxcn, cutoff.thv, cgwasenv)
     simumin <- rbind(simumin, simumin.tmp); rm(simumin.tmp); gc()
   }
-  print("time consuming of swtrtsimu: "); print(difftime(Sys.time(), ts)) # test
   stopCluster(cl)
 
   ppn <- ppoints(cgwasenv$.SIMUL_N * cgwasenv$.SIMUL_SNP_N)
-  ts <- Sys.time() # test
   trtc <- c()
   for (i in 1:ncol(simumin)) {
     trtc <- c(trtc, calnna(simumin[,i], ppn)); gc()
   }
-  print("time consuming of calnna: "); print(difftime(Sys.time(), ts)) # test
 
   cl <- makeCluster(min(cgwasenv$.PARAL_NUM, 4)) # 4 threads is enough
   registerDoParallel(cl)
-  ts <- Sys.time() # test
-  sww <- foreach(i = iter(simumin, by="row", chunksize = localsep),
+  sww <- foreach(i = iter(simumin, by="row", chunksize = chunkSize),
                  .combine = "c",
                  .inorder = T) %dopar%
           tpcor.m.simumin(i, trtc)
-  print("time consuming of tpcor: "); print(difftime(Sys.time(), ts)) # test
   stopCluster(cl)
   rm(simumin); gc()
 
-  print("C-GWAS GetCoef start ..")
+  logOutput("C-GWAS GetCoef start ..\n", cgwasenv = cgwasenv)
 
   md <- nullcorrection(sww, "CGWAS", cgwasenv)
 
-  print("C-GWAS Qcoef obtained")
-  print("LOESS model samples written to Details/NullCGWAScorrection.txt")
-  print("Simulated C-GWAS correction effect plotted to Details/NullCGWASdistribution.jpg")
-  print("")
-  print(paste0("Equivalent independent number of test at study-wide significance : ",
-               signif(tpcor2(sum(sww<swt)/length(sww), md),7)))
-  print(paste0("Equivalent independent number of test at nominal significance : ",
-               signif(tpcor2(0.05, md),7)))
+  logOutput("C-GWAS Qcoef obtained\n", cgwasenv = cgwasenv)
+  logOutput("LOESS model samples written to Details/NullCGWAScorrection.txt\n", cgwasenv = cgwasenv)
+  logOutput("Simulated C-GWAS correction effect plotted to Details/NullCGWASdistribution.jpg\n\n", cgwasenv = cgwasenv)
+  logOutput("Equivalent independent number of test at study-wide significance : ",
+               signif(tpcor2(sum(sww < cgwasenv$.P_THRD_STUDY)/length(sww), md),7), '\n', cgwasenv = cgwasenv)
+  logOutput("Equivalent independent number of test at nominal significance : ",
+               signif(tpcor2(0.05, md),7), '\n', cgwasenv = cgwasenv)
 
   cl <- makeCluster(cgwasenv$.PARAL_NUM)
   registerDoParallel(cl)
 
-  print("Applying the correction to C-GWAS raw p-value .. ")
-  print("")
+  logOutput("Applying the correction to C-GWAS raw p-value .. \n\n", cgwasenv = cgwasenv)
   compn <- as.character(ACstatm[,1])
   tm <- foreach(i = compn, .combine="cbind", .inorder=T) %dopar%
-          as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(i, ".stat")),
-                                                      header = F, stringsAsFactors = F, nThread = 1))[,1]
-  ts <- Sys.time() # test
-  owp <- foreach(i = iter(as.matrix(tm), by = "row", chunksize = localsep),
+          as.data.frame(data.table::fread(
+            file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(i, ".stat")),
+                      header = F, stringsAsFactors = F, nThread = 1))[,1]
+  owp <- foreach(i = iter(as.matrix(tm), by = "row", chunksize = chunkSize),
                  .combine="rbind",
                  .inorder=T) %dopar%
            swtrt(i, posm[[1]], cutoff.thv)
-  print("time consuming of swtrt: "); print(difftime(Sys.time(), ts)) # test
 
-  ts <- Sys.time() # test
-  owp <- foreach(i = iter(owp, by="row", chunksize = localsep),
+  owp <- foreach(i = iter(owp, by="row", chunksize = chunkSize),
                  .inorder = T,
                  .combine = "rbind") %dopar%
            tpcor.m(i, trtc)
-  print("time consuming of tpcor: "); print(difftime(Sys.time(), ts)) # test
 
   nntp <- ntp <- appmin(owp)
   tq <- seq(1/cgwasenv$.IND_SNP_N,
             1-1/cgwasenv$.IND_SNP_N,
-            length.out = length(ntp))
+            length.out = cgwasenv$.SNP_N)
   ct <- tpcor2(tq, md)
   ntp[order(ntp)] <- ntp[order(ntp)] * ct
   ntp[ntp>1] <- 1
   rm(owp); gc()
 
-  print(paste0("MinGWAS Simulation start .. (totally ",
-               cgwasenv$.SIMUL_DEP * cgwasenv$.IND_SNP_N,
-               " simulated independent SNPs)"))
+  logOutput("MinGWAS Simulation start .. (totally ",
+            cgwasenv$.SIMUL_DEP * cgwasenv$.IND_SNP_N,
+            " simulated independent SNPs)\n", cgwasenv = cgwasenv)
   gtm <- foreach(i=cgwasenv$.TRAIT_NAME, .combine="cbind", .inorder=T) %dopar%
            as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(i, ".stat")),
                                            header = F, stringsAsFactors = F, nThread = 1))[,1]
@@ -640,35 +617,32 @@ step5 <- function(cgwasenv) {
                    .combine="c") %dopar%
              efvn(posmg[[1]], cgwasenv$.SIMUL_SNP_N)
 
-  print("MinGWAS GetCoef start ..")
+  logOutput("MinGWAS GetCoef start ..\n", cgwasenv = cgwasenv)
   md <- nullcorrection(simup, "Minp", cgwasenv)
-  print("MinGWAS Qcoef obtained")
-  print("LOESS model samples written to Details/NullMinpcorrection.txt")
-  print("Simulated MinGWAS correction effect plotted to Details/NullMinpdistribution.jpg")
-  print("")
-  print(paste0("Equivalent independent number of test at study-wide significance : ",
-               signif(tpcor2(sum(simup<swt)/length(simup), md),7)))
-  print(paste0("Equivalent independent number of test at nominal significance : ",
-               signif(tpcor2(0.05, md),7)))
+  logOutput("MinGWAS Qcoef obtained\n", cgwasenv = cgwasenv)
+  logOutput("LOESS model samples written to Details/NullMinpcorrection.txt\n", cgwasenv = cgwasenv)
+  logOutput("Simulated MinGWAS correction effect plotted to Details/NullMinpdistribution.jpg\n\n", cgwasenv = cgwasenv)
+  logOutput("Equivalent independent number of test at study-wide significance : ",
+            signif(tpcor2(sum(simup<cgwasenv$.P_THRD_STUDY)/length(simup), md),7), '\n',
+            cgwasenv = cgwasenv)
+  logOutput("Equivalent independent number of test at nominal significance : ",
+            signif(tpcor2(0.05, md),7), '\n', cgwasenv = cgwasenv)
 
-  print("Applying the correction to MinGWAS raw p-value .. ")
-  print("")
-  ngtp <- gtp <- foreach(i = iter(gtm, by = "row", chunksize = localsep),
+  logOutput("Applying the correction to MinGWAS raw p-value .. \n\n", cgwasenv = cgwasenv)
+  ngtp <- gtp <- foreach(i = iter(gtm, by = "row", chunksize = chunkSize),
                          .inorder = T,
-                         .combine="c") %dopar%
-    minv(i)
+                         .combine="c") %dopar% minv(i)
 
   ct <- tpcor2(tq, md)
   gtp[order(gtp)] <- gtp[order(gtp)] * ct
   gtp[gtp>1] <- 1
   ntp[ntp <= 0] <- max(ntp, rm.na = T)
-  otp[otp <= 0] <- max(otp, rm.na = T)
   gtp[gtp <= 0] <- max(gtp, rm.na = T)
   pm <- cbind(ntp,nntp,gtp,ngtp)
   colnames(pm) <- c("C-GWASadjustedP","C-GWASrawP","MinGWASadjustedP","MinGWASrawP")
   if (cgwasenv$.MAF_FILE_EXIST) {
     MAF <- signif(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MAF"),
-                                    header=F, stringsAsFactors=F))[,1], 7)
+                                    header=F, stringsAsFactors=F)[,1], 7)
     MAF <- as.data.frame(MAF)
     data.table::fwrite(cbind(Sind, as.data.frame(signif(pm,7)), MAF),
                        file.path(cgwasenv$.CGWAS_RESULT_PATH, "C-GWAS.p"),
@@ -678,17 +652,17 @@ step5 <- function(cgwasenv) {
                        file.path(cgwasenv$.CGWAS_RESULT_PATH, "C-GWAS.p"),
                        sep=" ", na="NA", row.names=F, quote=F)
   }
-  print("Raw P and adjusted P of C-GWAS and MinGWAS written to Result/C-GWAS.p")
+  logOutput("Raw P and adjusted P of C-GWAS and MinGWAS written to Result/C-GWAS.p\n", cgwasenv = cgwasenv)
 
-  if (length(ntp) > 2e6) {
-    ssid <- c(1:2e4, seq(2e4, 2e5, 10), seq(2e5, 2e6, 100), seq(2e6, length(ntp), 1000), (length(ntp)-1000):length(ntp))
-  } else if(length(ntp)>2e5) {
-    ssid <- c(1:2e4, seq(2e4, 2e5, 10), seq(2e5, length(ntp), 100), (length(ntp)-1000):length(ntp))
+  if (cgwasenv$.SNP_N > 2e6) {
+    ssid <- c(1:2e4, seq(2e4, 2e5, 10), seq(2e5, 2e6, 100), seq(2e6, cgwasenv$.SNP_N, 1000), (cgwasenv$.SNP_N-1000):cgwasenv$.SNP_N)
+  } else if(cgwasenv$.SNP_N>2e5) {
+    ssid <- c(1:2e4, seq(2e4, 2e5, 10), seq(2e5, cgwasenv$.SNP_N, 100), (cgwasenv$.SNP_N-1000):cgwasenv$.SNP_N)
   } else {
-    ssid <- c(1:2e4,seq(2e4,length(ntp),10),(length(ntp)-1000):length(ntp))
+    ssid <- c(1:2e4,seq(2e4,cgwasenv$.SNP_N,10),(cgwasenv$.SNP_N-1000):cgwasenv$.SNP_N)
   }
 
-  xx <- -log10(ppoints(length(ntp))[ssid])
+  xx <- -log10(ppoints(cgwasenv$.SNP_N)[ssid])
   yyc <- -log10(ntp[order(ntp)][ssid])
   yyg <- -log10(gtp[order(gtp)][ssid])
   jpeg(file.path(cgwasenv$.CGWAS_RESULT_PATH, "CGWASminpQQ.jpg"),
@@ -702,25 +676,21 @@ step5 <- function(cgwasenv) {
   points(xx, yyc, pch=20, col="#FD9001", cex=0.6)
   abline(c(0, 1), lwd=1)
   dev.off()
-  print("QQ plots of C-GWAS and MinGWAS adjusted P plotted to Result/CGWASminpQQ.jpg")
+  logOutput("QQ plots of C-GWAS and MinGWAS adjusted P plotted to Result/CGWASminpQQ.jpg\n", cgwasenv = cgwasenv)
 
   if (!cgwasenv$.KEEP_EbICoW) {
     unlink(cgwasenv$.CGWAS_iEbICoW_PATH, recursive=TRUE)
-    print("All i-EbICoW statistics dropped")
+    logOutput("All i-EbICoW statistics dropped\n", cgwasenv = cgwasenv)
   } else{
-    print("All i-EbICoW statistics kept in Details/i-EbICoW/")
+    logOutput("All i-EbICoW statistics kept in Details/i-EbICoW/\n", cgwasenv = cgwasenv)
   }
 
-  print("")
-  print("C-GWAS step 5 completed")
-  print("")
-  print("")
+  logOutput("\nC-GWAS step 5 completed\n", cgwasenv = cgwasenv)
 }
 
 # Summary
 step6 <- function(cgwasenv) {
-  print("========== C-GWAS step 6 : Summary of C-GWAS ==========")
-  print("")
+  logOutput("========== C-GWAS step 6 : Summary of C-GWAS ==========\n\n", cgwasenv = cgwasenv)
 
   cl <- makeCluster(cgwasenv$.PARAL_NUM)
   registerDoParallel(cl)
@@ -770,11 +740,17 @@ step6 <- function(cgwasenv) {
     }
   }
   if(length(tableid)!=1) {
-    nm <- rbind(cbind(tlcidn, rkn, rep(1, length(rkn))), matrix(NA, length(tableid)-length(ns), 3))[order(c(ns, setdiff(tableid, ns))),]
-    om <- rbind(cbind(tlcido, rko, rep(1, length(rko))), matrix(NA, length(tableid)-length(os), 3))[order(c(os, setdiff(tableid, os))),]
+    nm <- rbind(cbind(tlcidn, rkn, rep(1, length(rkn))),
+                matrix(NA, length(tableid)-length(ns), 3))[order(c(ns, setdiff(tableid, ns))),]
+    om <- rbind(cbind(tlcido, rko, rep(1, length(rko))),
+                matrix(NA, length(tableid)-length(os), 3))[order(c(os, setdiff(tableid, os))),]
   } else{
-    nm <- matrix(rbind(cbind(tlcidn, rkn, rep(1, length(rkn))), matrix(NA, length(tableid)-length(ns), 3))[order(c(ns, setdiff(tableid, ns))),], nrow=length(tableid))
-    om <- matrix(rbind(cbind(tlcido, rko, rep(1, length(rko))), matrix(NA, length(tableid)-length(os), 3))[order(c(os, setdiff(tableid, os))),], nrow=length(tableid))
+    nm <- matrix(rbind(cbind(tlcidn, rkn, rep(1, length(rkn))),
+                       matrix(NA, length(tableid)-length(ns), 3))
+                 [order(c(ns, setdiff(tableid, ns))),], nrow=length(tableid))
+    om <- matrix(rbind(cbind(tlcido, rko, rep(1, length(rko))),
+                       matrix(NA, length(tableid)-length(os), 3))
+                 [order(c(os, setdiff(tableid, os))),], nrow=length(tableid))
   }
   nm <- cbind(signif(pm[tableid, 1], 7), nm)
   om <- cbind(signif(pm[tableid, 3], 7), om)
@@ -791,7 +767,7 @@ step6 <- function(cgwasenv) {
   write.csv(sumtable,
             file.path(cgwasenv$.CGWAS_RESULT_PATH, "SummarySugSigSNP.csv"),
             row.names=F,quote=F)
-  print("Suggestive significant SNP summary table written to Result/SummarySugSigSNP.csv")
+  logOutput("Suggestive significant SNP summary table written to Result/SummarySugSigSNP.csv\n", cgwasenv = cgwasenv)
 
   ns <- which(pm[,1]<=5e-8)
   os <- which(pm[,3]<=5e-8)
@@ -800,27 +776,27 @@ step6 <- function(cgwasenv) {
   jpeg(file.path(cgwasenv$.CGWAS_RESULT_PATH, "CGWAS-GWAS-S.jpg"),
        width=6000,height=4500,res=600)
   par(mar=c(1, 4, 1, 2))
-  lcsm3 <- manhattan(pm[,3], pm[,1], os, ns, lcido, lcidn, fdrv[3], fdrv[1], Sind, newtick)
+  lcsm3 <- manhattan(pm[,3], pm[,1], os, ns, lcido, lcidn, fdrv[3], fdrv[1], gv[3], gv[1],
+                     Sind, newtick)
   dev.off()
-  print("Manhattan plots of C-GWAS and MinGWAS plotted to Result/CGWAS-GWAS.jpg")
-  print("")
+  logOutput("Manhattan plots of C-GWAS and MinGWAS plotted to Result/CGWAS-GWAS.jpg\n\n", cgwasenv = cgwasenv)
 
   n4 <- length(os)-length(intersect(os,ns))
   n5 <- length(intersect(os,ns))
   n6 <- length(ns)-length(intersect(os,ns))
 
-  print(paste0("At suggestive significance ", signif(sst,7), " : (SNP)"))
-  print(paste0("MinGWAS unique : ", n1,
-               ",  MinGWAS and C-GWAS shared : ", n2,
-               ",  C-GWAS unique : ", n3))
-  print("")
-  print(paste0("At study-wide significance ", signif(swt,7), " : (Loci/SNP)"))
-  print(paste0("MinGWAS unique : ", lcsm3[1,1], "/", n4,
-               ",  MinGWAS and C-GWAS shared : ", min(lcsm3[2,1],lcsm3[1,2]), "/", n5,
-               ",  C-GWAS unique : ", lcsm3[2,2], "/", n6))
+  logOutput("At suggestive significance ", signif(cgwasenv$.P_THRD_SUGST),
+            " : (SNP)\n", cgwasenv = cgwasenv)
+  logOutput("MinGWAS unique : ", n1,
+            ",  MinGWAS and C-GWAS shared : ", n2,
+            ",  C-GWAS unique : ", n3, '\n\n', cgwasenv = cgwasenv)
+  logOutput("At study-wide significance ", signif(cgwasenv$.P_THRD_STUDY,7),
+            " : (Loci/SNP)\n", cgwasenv = cgwasenv)
+  logOutput("MinGWAS unique : ", lcsm3[1,1], "/", n4,
+            ",  MinGWAS and C-GWAS shared : ", min(lcsm3[2,1],lcsm3[1,2]), "/", n5,
+            ",  C-GWAS unique : ", lcsm3[2,2], "/", n6, '\n', cgwasenv = cgwasenv)
 
   stopCluster(cl)
 
-  print("")
-  print("C-GWAS step 6 completed")
+  logOutput("\nC-GWAS step 6 completed\n", cgwasenv = cgwasenv)
 }
