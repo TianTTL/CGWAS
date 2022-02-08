@@ -12,6 +12,13 @@ determined under a series of preset thresholds.
 
 C-GWAS controls the study-wide type-I error rate in an empirical manner via simulations and adjust the resultant p-values in such a way that they are directly comparable with those from traditional GWAS of a single trait.
 
+## Download & Install
+```
+install.packages('devtools')
+library(devtools)
+install_github('https://github.com/TianTTL/CGWAS')
+```
+
 ## Citation
 If you use the C-GWAS, please cite
 [placeholder]()
