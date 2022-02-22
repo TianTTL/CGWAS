@@ -63,14 +63,17 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' EbICoW GWASs would be kept in directory \code{Details/i-EbICoW}.
 #'
 #' @param gwasFilePath a string list containg the paths to GWASs summary files.
+#' Each file contains two columns, which represent STAT and P of each SNPs to
+#' current triat. The files require a header.
 #' @param snpFilePath a string indicating path to SNP information file. The SNP
 #' information file has three columns, which represent CHR, BP and SNP
-#' respectively.
+#' respectively. The file requires a header.
 #' @param outputPath a string indicating path to result output directory.
 #' @param traitName a string list of trait names.
 #' @param exNa logical. If \code{TRUE}, SNPs with NA in at least one GWAS will
 #' be removed; if If \code{FALSE}, the NA is replaced with BETA=0 and P=1.
-#' @param mafFilePath a string indicating path to MAF file.
+#' @param mafFilePath a string indicating path to MAF file. MAF file requires a
+#' header, and contains one column of minor allele frequency of each SNPs.
 #' @param keepIEb logical. If \code{TRUE},, BETA and STAT of all i-EbICoW
 #' combinations will be saved in \code{Details/i-EbICoW}.
 #' @param threadN number of threads to be used for parallel computing. The
@@ -254,7 +257,7 @@ cgwas <- function(gwasFilePath,
   / ____/      / ____/| |     / //   |  / ___/
  / /   ______ / / __  | | /| / // /| |  \\__ \\
 / /___/_____// /_/ /  | |/ |/ // ___ | ___/ /
-\\____/       \\____/   |__/|__//_/  |_|/____/      version 1.9.1\n\n")
+\\____/       \\____/   |__/|__//_/  |_|/____/      version 1.9.2\n\n")
 
   cgwasenv <- CGWAS_ENV$new()
 

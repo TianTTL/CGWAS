@@ -761,7 +761,7 @@ step6 <- function(cgwasenv) {
     sumtable <- cbind(Sind[tableid, 1:3], mafv[tableid], nm[,1:2], om[,1:2])
     colnames(sumtable) <- c("CHR", "BP", "SNP", "MAF", "C-GWAS-P", "C-GWAS-Loci", "MinGWAS-P", "MinGWAS-Loci")
   } else {
-    sumtable <- cbind(Sind[tableid, 1:3], nm, om)
+    sumtable <- cbind(Sind[tableid, 1:3], nm[,1:2], om[,1:2])
     colnames(sumtable) <- c("CHR", "BP", "SNP", "C-GWAS-P", "C-GWAS-Loci", "MinGWAS-P", "MinGWAS-Loci")
   }
   write.csv(sumtable,
