@@ -93,7 +93,7 @@ StatE1 <- function(traitid, cgwasenv) {
   return(unique(which(is.na(bpm[,1])), which(is.na(bpm[,2]))))
 }
 
-StatE2 <- function(traitid, naidList, naid, cgwasenv) {
+StatE2 <- function(traitid, naidList, naid, snpPosOrder, cgwasenv) {
   bpm <- data.table::fread(cgwasenv$.GWAS_FILE_PATH[traitid],
                            header = T, stringsAsFactors = F, nThread = 1)
   bpm <- as.matrix(bpm)
@@ -107,6 +107,7 @@ StatE2 <- function(traitid, naidList, naid, cgwasenv) {
       bpm <- bpm[naidList[[traitid]], 2] <- 1
     }
   }
+  bpm <- bpm[snpPosOrder,]
 
   data.table::fwrite(as.data.frame(signif(bpm[,1], 7)),
          file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".beta")),
@@ -116,20 +117,6 @@ StatE2 <- function(traitid, naidList, naid, cgwasenv) {
          file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(cgwasenv$.TRAIT_NAME[traitid], ".stat")),
          row.names = F, col.names = F, quote = F, nThread = 1)
 
-  if (traitid == 1) {
-    df.snp <- data.table::fread(cgwasenv$.SNP_FILE_PATH,
-                                header = T, stringsAsFactors = F, nThread = 1)
-    if (length(naid) != 0 & cgwasenv$.EXCLUDE_NA) {
-      df.snp <- df.snp[-naid,]
-
-      write.table(df.snp[naid], file.path(cgwasenv$.CGWAS_RESULT_PATH, 'ExcludedSNP.txt'),
-                  row.names = F, col.names = F, quote = F)
-      logOutput(length(naid), " excluded SNPs written to Result/ExcludedSNP.txt\n", cgwasenv = cgwasenv)
-    }
-    data.table::fwrite(df.snp,
-                       file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "SnpIndex"),
-                       sep = " ", na = "NA", row.names = F, quote = F, nThread = 1)
-  }
   return(nrow(bpm))
 }
 
@@ -668,14 +655,14 @@ nullcorrection <- function(isimup, nam, cgwasenv) {
 
   rth <- seq(yy[cgwasenv$.IND_SNP_N-1], yy[cgwasenv$.IND_SNP_N/10], length.out = (1/0.025+1))
   rth <- rth[-length(rth)]
-  ii <- 1
+  j <- 1
   sid <- c()
   for (i in length(yy):1) {
-    if (yy[i]>=rth[ii]) {
-      ii <- ii+1
+    if (yy[i]>=rth[j]) {
+      j <- j+1
       sid <- c(sid, i)
     }
-    if (ii>length(rth)) {
+    if (j>length(rth)) {
       break
     }
   }

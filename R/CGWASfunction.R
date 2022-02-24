@@ -28,6 +28,23 @@ step1 <- function(cgwasenv) {
     logOutput("0 SNP with NA found\n", cgwasenv = cgwasenv)
   }
 
+  # order SNPs by position
+  df.snp <- data.table::fread(cgwasenv$.SNP_FILE_PATH,
+                              header = T, stringsAsFactors = F, nThread = 1)
+  if (length(naid) != 0 & cgwasenv$.EXCLUDE_NA) {
+    df.snp <- df.snp[-naid,]
+
+    write.table(df.snp[naid], file.path(cgwasenv$.CGWAS_RESULT_PATH, 'ExcludedSNP.txt'),
+                row.names = F, col.names = F, quote = F)
+    logOutput(length(naid), " excluded SNPs written to Result/ExcludedSNP.txt\n", cgwasenv = cgwasenv)
+  }
+  snpPosOrder <- order(df.snp[,1], df.snp[,2])
+  df.snp <- df.snp[snpPosOrder,]
+  data.table::fwrite(df.snp,
+                     file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "SnpIndex"),
+                     sep = " ", na = "NA", row.names = F, quote = F, nThread = 1)
+
+  # input MAF information
   if (cgwasenv$.MAF_FILE_EXIST) {
     mafv <- as.data.frame(data.table::fread(cgwasenv$.MAF_FILE_PATH,
                                             header = T, stringsAsFactors = F,
@@ -35,10 +52,13 @@ step1 <- function(cgwasenv) {
     if (cgwasenv$.EXCLUDE_NA & naid.Len != 0) {
       mafv <- mafv[-naid]
     }
-    write.table(mafv, file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MAF"), row.names = F, col.names = F, quote = F)
+    mafv <- mafv[snpPosOrder]
+    write.table(mafv, file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MAF"),
+                row.names = F, col.names = F, quote = F)
   }
+  # input association summary
   snp.N <- foreach(i = seq_len(cgwasenv$.TRAIT_NUM), .combine = "c", .inorder = F) %dopar%
-    StatE2(i, naidList, naid, cgwasenv)
+    StatE2(i, naidList, naid, snpPosOrder, cgwasenv)
 
   # check equality among all element in snp.N
   if (cgwasenv$.MAF_FILE_EXIST) {snp.N <- c(snp.N, length(mafv))}

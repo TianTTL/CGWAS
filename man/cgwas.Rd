@@ -8,7 +8,7 @@ cgwas(
   gwasFilePath,
   snpFilePath,
   outputPath,
-  traitName = basename(gwasFilePath[1]),
+  traitName = basename(gwasFilePath),
   exNa = TRUE,
   mafFilePath = NULL,
   keepIEb = FALSE,
@@ -29,11 +29,13 @@ cgwas(
 )
 }
 \arguments{
-\item{gwasFilePath}{a string list containg the paths to GWASs summary files.}
+\item{gwasFilePath}{a string list containg the paths to GWASs summary files.
+Each file contains two columns, which represent STAT and P of each SNPs to
+current triat. The files require a header.}
 
 \item{snpFilePath}{a string indicating path to SNP information file. The SNP
 information file has three columns, which represent CHR, BP and SNP
-respectively.}
+respectively. The file requires a header.}
 
 \item{outputPath}{a string indicating path to result output directory.}
 
@@ -42,7 +44,8 @@ respectively.}
 \item{exNa}{logical. If \code{TRUE}, SNPs with NA in at least one GWAS will
 be removed; if If \code{FALSE}, the NA is replaced with BETA=0 and P=1.}
 
-\item{mafFilePath}{a string indicating path to MAF file.}
+\item{mafFilePath}{a string indicating path to MAF file. MAF file requires a
+header, and contains one column of minor allele frequency of each SNPs.}
 
 \item{keepIEb}{logical. If \code{TRUE},, BETA and STAT of all i-EbICoW
 combinations will be saved in \code{Details/i-EbICoW}.}
