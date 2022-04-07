@@ -30,7 +30,7 @@ cgwas(
 }
 \arguments{
 \item{gwasFilePath}{a string list containg the paths to GWASs summary files.
-Each file contains two columns, which represent STAT and P of each SNPs to
+Each file contains two columns, which represent BETA and P of each SNPs to
 current triat. The files require a header.}
 
 \item{snpFilePath}{a string indicating path to SNP information file. The SNP

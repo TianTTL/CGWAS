@@ -63,7 +63,7 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' EbICoW GWASs would be kept in directory \code{Details/i-EbICoW}.
 #'
 #' @param gwasFilePath a string list containg the paths to GWASs summary files.
-#' Each file contains two columns, which represent STAT and P of each SNPs to
+#' Each file contains two columns, which represent BETA and P of each SNPs to
 #' current triat. The files require a header.
 #' @param snpFilePath a string indicating path to SNP information file. The SNP
 #' information file has three columns, which represent CHR, BP and SNP
