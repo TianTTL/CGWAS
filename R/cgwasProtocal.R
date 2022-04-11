@@ -62,18 +62,19 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' summary statistics (effect sizes, *.beta and test statistics, *.stat) of
 #' EbICoW GWASs would be kept in directory \code{Details/i-EbICoW}.
 #'
-#' @param gwasFilePath a string list containg the paths to GWASs summary files.
-#' Each file contains two columns, which represent BETA and P of each SNPs to
-#' current triat. The files require a header.
+#' @param gwasFilePath a string list contains the paths to GWASs summary files.
+#' Each file contains two columns, which represent BETA and P of each
+#' SNPs to current trait. The BETA value across all GWASs summary files should
+#' be normalized into a same scale. The files require a header line.
 #' @param snpFilePath a string indicating path to SNP information file. The SNP
 #' information file has three columns, which represent CHR, BP and SNP
-#' respectively. The file requires a header.
+#' respectively. The file requires a header line.
 #' @param outputPath a string indicating path to result output directory.
 #' @param traitName a string list of trait names.
 #' @param exNa logical. If \code{TRUE}, SNPs with NA in at least one GWAS will
 #' be removed; if If \code{FALSE}, the NA is replaced with BETA=0 and P=1.
 #' @param mafFilePath a string indicating path to MAF file. MAF file requires a
-#' header, and contains one column of minor allele frequency of each SNPs.
+#' header line, and contains one column of minor allele frequency of each SNPs.
 #' @param keepIEb logical. If \code{TRUE},, BETA and STAT of all i-EbICoW
 #' combinations will be saved in \code{Details/i-EbICoW}.
 #' @param threadN number of threads to be used for parallel computing. The
