@@ -47,24 +47,21 @@ Typically, this process takes between 20 seconds and 1 minute, depending on the 
 example of the input GWAS file
 
 ```R
-f1 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
-'Y1.assoc'), header=TRUE)
+f1 <- read.table(file.path(system.file("extdata", package = "CGWAS"), 'Y1.assoc'), header=TRUE)
 head(f1)
 ```
 
 example of the input mean reference allele frequency file
 
 ```R
-f2 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
-'MRAF'), header=TRUE)
+f2 <- read.table(file.path(system.file("extdata", package = "CGWAS"), 'MRAF'), header=TRUE)
 head(f2)
 ```
 
 example of the input SNP information file
 
 ```R
-f3 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
-'SnpInfo'), header=TRUE)
+f3 <- read.table(file.path(system.file("extdata", package = "CGWAS"), 'SnpInfo'), header=TRUE)
 head(f3)
 ```
 
@@ -137,5 +134,5 @@ The detailed description of arguments and the legends of output tables and figur
 
 ## Future Development Plan
 
-Standing along functions facilitating the C-GWAS analysis will be implemented in a later version, e.g., `getI`, `getPsi`, `getPi`.
+Standing along functions facilitating the C-GWAS analysis will be implemented in a later version, e.g., `getI`, `getPsi`, `getPi`, `getCoef`, `i-EbICoW`, `TWT`.
 
