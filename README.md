@@ -41,7 +41,7 @@ library(CGWAS)
 
 Typically, this process takes between 20 seconds and 1 minute, depending on the network conditions.
 
-### Example
+## Example
 
 example of the input GWAS file
 
@@ -89,7 +89,7 @@ cgwas(gwasFilePath, snpFilePath, outputPath,
       traitName = traitName, mrafFilePath = mrafFilePath, indSNPN = indSNPN)
 ```
 
-### Instructions for Use
+## Instructions for Use
 
 CGWAS implements whole procedure into a single function `cgwas`. 
 
@@ -119,6 +119,6 @@ The summary and immediate results of C-GWAS analysis are saved in the output dir
 9. A figure for the performance of `getCoef` based correction in MinGWAS simulation `NullMinpdistribution.jpg`. 
 10. If user choose to keep `i-EbICoW` output (`keepIEb = TRUE`), all summary statistics (effect sizes, *.beta and test statistics, *.stat) of EbICoW GWASs are saved in `Details/i-EbICoW`.
 
-### Future Development Plan
+## Future Development Plan
 
 Standing along functions facilitating the C-GWAS analysis will be implemented in a later version, e.g., `getI`, `getPsi`, `getPi`.
