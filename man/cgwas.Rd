@@ -158,7 +158,10 @@ The summary and immediate results of C-GWAS analysis are saved in the output
 directory \code{outputPath}. Two new folders will be created in this
 directory: \code{Results/} and \code{Details/}.
 }
-\section{Legends of tables and figures of main results}{
+\section{Main Results}{
+
+
+The \code{Results/} folder contains main results including:
 
 \describe{
 \item{\code{CGWAS-GWAS.jpg}}{Combined Manhattan plots displays adjusted
@@ -187,7 +190,10 @@ will be also included if user provided the reference allele frequencies in
 }
 }
 
-\section{Legends of tables and figures of intermediate results}{
+\section{Intermediate Results}{
+
+
+The \code{Details/} folder contains all intermediate results including
 
 \describe{
 \item{\code{SummaryGetI.txt}}{This table contains mean chi-square (square of
@@ -257,7 +263,7 @@ test statistics, *.stat) of EbICoW GWASs are saved in \code{Details/i-EbICoW}.}
 }
 }
 
-\section{Future development plan}{
+\section{Future Development Plan}{
 
 The current version is 0.9.3, which implementing the whole C-GWAS procedure
 into a single function \code{cgwas}. Standing along functions facilitating

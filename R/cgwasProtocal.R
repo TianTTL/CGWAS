@@ -126,7 +126,10 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' between two SNPs that should be considered as in distinct loci, value range
 #' \eqn{[1e5,1e6]}. The default value is \eqn{2.5e5}, i.e., \code{250 kbp}.
 #'
-#' @section Legends of tables and figures of main results:
+#' @section Main Results:
+#'
+#' The \code{Results/} folder contains main results including:
+#'
 #' \describe{
 #' \item{\code{CGWAS-GWAS.jpg}}{Combined Manhattan plots displays adjusted
 #' C-GWAS p-value (upper parts) and adjusted MinGWAS p-value (lower parts) of
@@ -153,7 +156,10 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' \code{mrafFilePath}.}
 #' }
 #'
-#' @section Legends of tables and figures of intermediate results:
+#' @section Intermediate Results:
+#'
+#' The \code{Details/} folder contains all intermediate results including
+#'
 #' \describe{
 #' \item{\code{SummaryGetI.txt}}{This table contains mean chi-square (square of
 #' test statistics) of all SNPs before adjustment (RawMeanX2), Genomic control
@@ -222,17 +228,17 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' }
 #'
 #' @examples
-#' # an example of the input GWAS file
+#' # example of the input GWAS file
 #' f1 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
 #' 'Y1.assoc'), header=TRUE)
 #' head(f1)
 #'
-#' # an example of the input mean reference allele frequency file
+#' # example of the input mean reference allele frequency file
 #' f2 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
 #' 'MRAF'), header=TRUE)
 #' head(f2)
 #'
-#' # an example of the input SNP information file
+#' # example of the input SNP information file
 #' f3 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
 #' 'SnpInfo'), header=TRUE)
 #' head(f3)
@@ -257,7 +263,7 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' cgwas(gwasFilePath, snpFilePath, outputPath,
 #'       traitName = traitName, mrafFilePath = mrafFilePath, indSNPN = indSNPN)
 #'
-#' @section Future development plan:
+#' @section Future Development Plan:
 #' The current version is 0.9.3, which implementing the whole C-GWAS procedure
 #' into a single function \code{cgwas}. Standing along functions facilitating
 #' the C-GWAS analysis will be implemented in a later version, e.g., \code{getI},

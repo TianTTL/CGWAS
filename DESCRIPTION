@@ -9,10 +9,10 @@ License: GPL-3
 Encoding: UTF-8
 LazyData: true
 Imports: 
-    data.table,
-    foreach,
+    data.table (>= 1.13.0),
+    foreach (>= 1.5.0),
     doParallel,
-    MASS,
+    MASS (>= 7.3-51),
     iterators,
     methods
 Depends: R (>= 3.1.0)

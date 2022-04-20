@@ -1,21 +1,124 @@
 # C-GWAS
-A whole solution for illustrating multi-trait effect of all SNPs with a set of GWASs summary data.
+
+Combining GWAS summary statistics of multiple potentially related traits.
 
 ## Overview
-C-GWAS begins with GWASs summary as inputs and outputs a single vector of combined p-values testing if the null is deviated. For each SNP, the null is the absence of any effect on all traits, and the alternative is that its
-effect deviates from 0 for at least one trait.
+C-GWAS is a powerful method for combining GWAS summary statistics of multiple potentially related traits and detect SNPs with multi-trait effects. 
 
-C-GWAS integrates two different statistical methods to ensure the optimal power under various and complex scenarios while keeping a stable study-wide type-I error rate. The first method uses an iterative effect based inversed
-covariance weighting (i-EbICoW), which appears the most powerful when the assumption (all SNPs share the same variance–covariance matrix of effect sizes across traits) tends to be satisfied or moderately violated. The second
-method is a truncated Wald test (TWT) which is more powerful than i-EbICoW when the assumption tends to be severely violated. For each SNP, TWT proposes the best subset of phenotypes by applying the Wald test to all subsets
-determined under a series of preset thresholds.
+C-GWAS begins with GWASs summary as inputs and outputs a single vector of combined p-values testing if the null is deviated. For each SNP, the null is the absence of any effect on all traits, and the alternative is that its effect deviates from 0 for at least one trait. C-GWAS integrates two different statistical methods with complementary statistical features to ensure the optimal power under various and complex scenarios while keeping a stable study-wide type-I error rate. The first method is called iterative effect based inverse covariance weighting (`i-EbICoW`) and the second method is called truncated Wald test (`TWT`). 
 
 C-GWAS controls the study-wide type-I error rate in an empirical manner via simulations and adjust the resultant p-values in such a way that they are directly comparable with those from traditional GWAS of a single trait.
 
-## Download & Install
-```
+## System Requirements
+
+**Depends**
+
+R (>= 3.1.0)
+
+**Imports**
+
+data.table (>= 1.13.0)
+
+foreach (>= 1.5.0)
+
+MASS (>= 7.3-51)
+
+## Download & Installation
+
+First, we need to install R package `devtools`:
+
+```R
 install.packages('devtools')
 library(devtools)
-install_github('https://github.com/TianTTL/CGWAS')
 ```
 
+Then we just call
+
+```R
+install_github('https://github.com/FanLiuLab/CGWAS')
+library(CGWAS)
+```
+
+Typically, this process takes between 20 seconds and 1 minute, depending on the network conditions.
+
+### Example
+
+example of the input GWAS file
+
+```R
+f1 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
+'Y1.assoc'), header=TRUE)
+head(f1)
+```
+
+example of the input mean reference allele frequency file
+
+```R
+f2 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
+'MRAF'), header=TRUE)
+head(f2)
+```
+
+example of the input SNP information file
+
+```R
+f3 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
+'SnpInfo'), header=TRUE)
+head(f3)
+```
+
+demo of whole C-GWAS procedure implementing
+
+```R
+outputPath <- getwd() # the output files are in the current working directory
+ExDataDir <- system.file("extdata", package = "CGWAS")
+gwasFileName <- c("Y1.assoc", "Y2.assoc", "Y3.assoc",
+                  "Y4.assoc", "Y5.assoc", "Y6.assoc",
+                  "Y7.assoc", "Y8.assoc", "Y9.assoc",
+                  "Y10.assoc", "Y11.assoc", "Y12.assoc")
+gwasFilePath <- file.path(ExDataDir, gwasFileName)
+snpFilePath <- file.path(ExDataDir, 'SnpInfo')
+traitName <- c("Y1", "Y2", "Y3",
+               "Y4", "Y5", "Y6",
+               "Y7", "Y8", "Y9",
+               "Y10", "Y11L", "Y12")
+mrafFilePath <- file.path(ExDataDir, 'MRAF')
+indSNPN = 1e5
+
+cgwas(gwasFilePath, snpFilePath, outputPath,
+      traitName = traitName, mrafFilePath = mrafFilePath, indSNPN = indSNPN)
+```
+
+### Instructions for Use
+
+CGWAS implements whole procedure into a single function `cgwas`. 
+
+The input files contains GWAS summary statistics files,  SNP information file and mean reference allele
+ frequency (MRAF) file. XXXX
+
+The summary and immediate results of C-GWAS analysis are saved in the output directory `outputPath`. Two new folders will be created in this directory: `Results/` and `Details/`.
+
+**The `Results/` folder contains final results**
+
+1. Manhattan plots `CGWAS-GWAS.jpg`, 
+2. Q-Q plots `CGWASminpQQ.jpg` of C-GWAS and MinGWAS, 
+3. study-wide suggestively significant SNPs table `SummarySugSigSNP.csv` 
+4. p-values of all SNPs `C-GWAS.p`. 
+
+**The `Details/` folder contains all intermediate results including**
+
+1. A table of results of the `getI` function `SummaryGetI.txt`; 
+
+2. A table of results of `getPsi` function `SummaryGetPsi.txt`, 
+3. A table of summary results of `i-EbICoW` `EbICoW.txt`, 
+4. A table of results of `getPsi` function applied to all EbICoW GWAS pairs `SummaryEbICoWGetPsi.txt`, 
+5. A table of records of all `i-EbICoW` iterations `Summaryi-EbICoW.txt`, 
+6. A table of C-GWAS LOESS model samples simulated in `getCoef` function `NullCGWAScorrection.txt`, 
+7. A figure for the performance of `getCoef` based correction in C-GWAS simulation `NullCGWASdistribution.jpg` 
+8. A table of MinGWAS LOESS model samples simulated in `getCoef` function `NullMinpcorrection.txt`, 
+9. A figure for the performance of `getCoef` based correction in MinGWAS simulation `NullMinpdistribution.jpg`. 
+10. If user choose to keep `i-EbICoW` output (`keepIEb = TRUE`), all summary statistics (effect sizes, *.beta and test statistics, *.stat) of EbICoW GWASs are saved in `Details/i-EbICoW`.
+
+### Future Development Plan
+
+Standing along functions facilitating the C-GWAS analysis will be implemented in a later version, e.g., `getI`, `getPsi`, `getPi`.
