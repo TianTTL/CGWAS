@@ -16,7 +16,7 @@ paramOutput <- function(cgwasenv) {
             cgwasenv = cgwasenv)
   logOutput("Exclude NA : ", cgwasenv$.EXCLUDE_NA, '\n',
             cgwasenv = cgwasenv)
-  logOutput("MAF path : ", cgwasenv$.MAF_FILE_PATH, '\n',
+  logOutput("MRAF path : ", cgwasenv$.MRAF_FILE_PATH, '\n',
             cgwasenv = cgwasenv)
   logOutput("Output path : ", cgwasenv$.CGWAS_DIR, '\n',
             cgwasenv = cgwasenv)
@@ -450,14 +450,14 @@ ebicocof <- function(cv, ssw, tm, thresc) {
   return(cbind(coef, coefs, cbef, boef, boefs, bbef, d1, d2, d0))
 }
 
-Essfun <- function(tid, mafv, cgwasenv) {
+Essfun <- function(tid, mrafv, cgwasenv) {
   t2m <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(tid, ".stat")),
                                          header = F, stringsAsFactors = F, nThread = 1))[,1]
   b2m <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, paste0(tid, ".beta")),
                                          header = F, stringsAsFactors = F, nThread = 1))[,1]
   s2m <- t2m/b2m
-  if (cgwasenv$.MAF_FILE_EXIST) {
-    mse <- median(s2m^2/2/mafv/(1-mafv), na.rm = T)
+  if (cgwasenv$.MRAF_FILE_EXIST) {
+    mse <- median(s2m^2/2/mrafv/(1-mrafv), na.rm = T)
   } else{
     mse <- median(s2m^2, na.rm = T)
   }

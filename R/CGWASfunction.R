@@ -36,7 +36,7 @@ step1 <- function(cgwasenv) {
 
     write.table(df.snp[naid], file.path(cgwasenv$.CGWAS_RESULT_PATH, 'ExcludedSNP.txt'),
                 row.names = F, col.names = F, quote = F)
-    logOutput(length(naid), " excluded SNPs written to Result/ExcludedSNP.txt\n", cgwasenv = cgwasenv)
+    logOutput(length(naid), " excluded SNPs written to Results/ExcludedSNP.txt\n", cgwasenv = cgwasenv)
   }
   snpPosOrder <- order(df.snp[,1], df.snp[,2])
   df.snp <- df.snp[snpPosOrder,]
@@ -44,16 +44,16 @@ step1 <- function(cgwasenv) {
                      file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "SnpIndex"),
                      sep = " ", na = "NA", row.names = F, quote = F, nThread = 1)
 
-  # input MAF information
-  if (cgwasenv$.MAF_FILE_EXIST) {
-    mafv <- as.data.frame(data.table::fread(cgwasenv$.MAF_FILE_PATH,
+  # input MRAF information
+  if (cgwasenv$.MRAF_FILE_EXIST) {
+    mrafv <- as.data.frame(data.table::fread(cgwasenv$.MRAF_FILE_PATH,
                                             header = T, stringsAsFactors = F,
                                             nThread = 1))[,1]
     if (cgwasenv$.EXCLUDE_NA & naid.Len != 0) {
-      mafv <- mafv[-naid]
+      mrafv <- mrafv[-naid]
     }
-    mafv <- mafv[snpPosOrder]
-    write.table(mafv, file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MAF"),
+    mrafv <- mrafv[snpPosOrder]
+    write.table(mrafv, file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MRAF"),
                 row.names = F, col.names = F, quote = F)
   }
   # input association summary
@@ -61,7 +61,7 @@ step1 <- function(cgwasenv) {
     StatE2(i, naidList, naid, snpPosOrder, cgwasenv)
 
   # check equality among all element in snp.N
-  if (cgwasenv$.MAF_FILE_EXIST) {snp.N <- c(snp.N, length(mafv))}
+  if (cgwasenv$.MRAF_FILE_EXIST) {snp.N <- c(snp.N, length(mrafv))}
   if (length(unique(snp.N)) > 1)  {
     stop("Error: SNP number in each files are not equal.")
   }
@@ -203,8 +203,8 @@ step4 <- function(cgwasenv) {
   thresc <- qchisq(cgwasenv$.P_MAIN_EFFECT, 1, lower.tail = F)
   thresw <- qchisq(cgwasenv$.P_MAIN_EFFECT, 2, lower.tail = F)
 
-  if (cgwasenv$.MAF_FILE_EXIST) {
-    mafv <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MAF"),
+  if (cgwasenv$.MRAF_FILE_EXIST) {
+    mrafv <- as.data.frame(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MRAF"),
                                             header = F, stringsAsFactors = F,
                                             nThread = cgwasenv$.PARAL_NUM))[,1]
   }
@@ -218,7 +218,7 @@ step4 <- function(cgwasenv) {
   AllEff <- as.numeric(c(cordatm[-(1:(n-2))^2/2+(n-0.5)*(1:(n-2))-n+2, 1],
                          cordatm[-(n-2)^2/2+(n-0.5)*(n-2)-n+2, 2]))
   Ess <- unlist(foreach(i = cgwasenv$.TRAIT_NAME, .inorder = T) %dopar%
-                  Essfun(i, mafv, cgwasenv))
+                  Essfun(i, mrafv, cgwasenv))
   TNm <- cbind(data.frame(TraitName = cgwasenv$.TRAIT_NAME, stringsAsFactors = F), AllEff, Ess)
   idlist <- as.list(cgwasenv$.TRAIT_NAME)
   bflist <- as.list(rep(1, cgwasenv$.TRAIT_NUM))
@@ -355,8 +355,8 @@ step4 <- function(cgwasenv) {
     bofv <- bofm[,did]*sqrt(mse)/sum((bofm[,did]*dofm[,did])*sqrt(mse))
     newb <- b2m %*% bofv
 
-    if (cgwasenv$.MAF_FILE_EXIST) {
-      newmse <- median((newt/newb)^2/2/mafv/(1-mafv), na.rm = T)
+    if (cgwasenv$.MRAF_FILE_EXIST) {
+      newmse <- median((newt/newb)^2/2/mrafv/(1-mrafv), na.rm = T)
     } else{
       newmse <- median((newt/newb)^2, na.rm = T)
     }
@@ -660,11 +660,11 @@ step5 <- function(cgwasenv) {
   gtp[gtp <= 0] <- max(gtp, rm.na = T)
   pm <- cbind(ntp, nntp, gtp, ngtp)
   colnames(pm) <- c("C-GWASadjustedP", "C-GWASrawP", "MinGWASadjustedP", "MinGWASrawP")
-  if (cgwasenv$.MAF_FILE_EXIST) {
-    MAF <- signif(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MAF"),
+  if (cgwasenv$.MRAF_FILE_EXIST) {
+    MRAF <- signif(data.table::fread(file.path(cgwasenv$.CGWAS_iEbICoW_PATH, "MRAF"),
                                     header = F, stringsAsFactors = F)[,1], 7)
-    MAF <- as.data.frame(MAF)
-    data.table::fwrite(cbind(Sind, as.data.frame(signif(pm, 7)), MAF),
+    MRAF <- as.data.frame(MRAF)
+    data.table::fwrite(cbind(Sind, as.data.frame(signif(pm, 7)), MRAF),
                        file.path(cgwasenv$.CGWAS_RESULT_PATH, "C-GWAS.p"),
                        sep = " ", na = "NA", row.names = F, quote = F)
   } else {
@@ -672,7 +672,7 @@ step5 <- function(cgwasenv) {
                        file.path(cgwasenv$.CGWAS_RESULT_PATH, "C-GWAS.p"),
                        sep = " ", na = "NA", row.names = F, quote = F)
   }
-  logOutput("Raw P and adjusted P of C-GWAS and MinGWAS written to Result/C-GWAS.p\n", cgwasenv = cgwasenv)
+  logOutput("Raw P and adjusted P of C-GWAS and MinGWAS written to Results/C-GWAS.p\n", cgwasenv = cgwasenv)
 
   if (cgwasenv$.SNP_N > 2e6) {
     ssid <- c(1:2e4, seq(2e4, 2e5, 10), seq(2e5, 2e6, 100), seq(2e6, cgwasenv$.SNP_N, 1000), (cgwasenv$.SNP_N-1000):cgwasenv$.SNP_N)
@@ -696,7 +696,7 @@ step5 <- function(cgwasenv) {
   points(xx, yyc, pch = 20, col = "#FD9001", cex = 0.6)
   abline(c(0, 1), lwd = 1)
   dev.off()
-  logOutput("QQ plots of C-GWAS and MinGWAS adjusted P plotted to Result/CGWASminpQQ.jpg\n", cgwasenv = cgwasenv)
+  logOutput("QQ plots of C-GWAS and MinGWAS adjusted P plotted to Results/CGWASminpQQ.jpg\n", cgwasenv = cgwasenv)
 
   if (!cgwasenv$.KEEP_EbICoW) {
     unlink(cgwasenv$.CGWAS_iEbICoW_PATH, recursive = TRUE)
@@ -723,8 +723,8 @@ step6 <- function(cgwasenv) {
   newtick <- manpos(Sind)
   Sind <- cbind(Sind, newtick[[1]])
   newtick <- newtick[[2]]
-  if (cgwasenv$.MAF_FILE_EXIST) {
-    mafv <- cgwasm[,8]
+  if (cgwasenv$.MRAF_FILE_EXIST) {
+    mrafv <- cgwasm[,8]
   }
   pm <- pm <- as.matrix(cgwasm[,4:6])
 
@@ -777,9 +777,9 @@ step6 <- function(cgwasenv) {
   nm[nm[,1]<=5e-8, 4] <- 2
   om[om[,1]<=5e-8, 4] <- 2
 
-  if (cgwasenv$.MAF_FILE_EXIST) {
-    sumtable <- cbind(Sind[tableid, 1:3], mafv[tableid], nm[,1:2], om[,1:2])
-    colnames(sumtable) <- c("CHR", "BP", "SNP", "MAF", "C-GWAS-P", "C-GWAS-Loci", "MinGWAS-P", "MinGWAS-Loci")
+  if (cgwasenv$.MRAF_FILE_EXIST) {
+    sumtable <- cbind(Sind[tableid, 1:3], mrafv[tableid], nm[,1:2], om[,1:2])
+    colnames(sumtable) <- c("CHR", "BP", "SNP", "MRAF", "C-GWAS-P", "C-GWAS-Loci", "MinGWAS-P", "MinGWAS-Loci")
   } else {
     sumtable <- cbind(Sind[tableid, 1:3], nm[,1:2], om[,1:2])
     colnames(sumtable) <- c("CHR", "BP", "SNP", "C-GWAS-P", "C-GWAS-Loci", "MinGWAS-P", "MinGWAS-Loci")
@@ -787,7 +787,7 @@ step6 <- function(cgwasenv) {
   write.csv(sumtable,
             file.path(cgwasenv$.CGWAS_RESULT_PATH, "SummarySugSigSNP.csv"),
             row.names = F, quote = F)
-  logOutput("Suggestive significant SNP summary table written to Result/SummarySugSigSNP.csv\n", cgwasenv = cgwasenv)
+  logOutput("Suggestive significant SNP summary table written to Results/SummarySugSigSNP.csv\n", cgwasenv = cgwasenv)
 
   ns <- which(pm[,1]<=5e-8)
   os <- which(pm[,3]<=5e-8)
@@ -799,7 +799,7 @@ step6 <- function(cgwasenv) {
   lcsm3 <- manhattan(pm[,3], pm[,1], os, ns, lcido, lcidn, fdrv[3], fdrv[1], gv[3], gv[1],
                      Sind, newtick)
   dev.off()
-  logOutput("Manhattan plots of C-GWAS and MinGWAS plotted to Result/CGWAS-GWAS.jpg\n\n", cgwasenv = cgwasenv)
+  logOutput("Manhattan plots of C-GWAS and MinGWAS plotted to Results/CGWAS-GWAS.jpg\n\n", cgwasenv = cgwasenv)
 
   n4 <- length(os)-length(intersect(os, ns))
   n5 <- length(intersect(os, ns))
