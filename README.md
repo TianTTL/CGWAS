@@ -1,6 +1,6 @@
 # C-GWAS
 
-Combining GWAS summary statistics of multiple potentially related traits.
+An R package for combining GWAS summary statistics of multiple potentially related traits.
 
 ## Overview
 
