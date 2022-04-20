@@ -33,42 +33,42 @@ install.packages('devtools')
 library(devtools)
 ```
 
-Then we just call
+Then we just call:
 
 ```R
 install_github('https://github.com/FanLiuLab/CGWAS')
 library(CGWAS)
 ```
 
-Typically, this process takes between 20 seconds and 1 minute, depending on the network conditions.
+Typically, this process takes between 20 seconds to 1 minute, depending on the network conditions.
 
 ## Example
 
-example of the input GWAS file
+<p id="example1"></p>An example of the input GWAS file:
 
 ```R
 f1 <- read.table(file.path(system.file("extdata", package = "CGWAS"), 'Y1.assoc'), header=TRUE)
 head(f1)
 ```
 
-example of the input mean reference allele frequency file
+<p id="example2"></p>Example of the input mean reference allele frequency file:
 
 ```R
 f2 <- read.table(file.path(system.file("extdata", package = "CGWAS"), 'MRAF'), header=TRUE)
 head(f2)
 ```
 
-example of the input SNP information file
+<p id="example3"></p>An example of the input SNP information file:
 
 ```R
 f3 <- read.table(file.path(system.file("extdata", package = "CGWAS"), 'SnpInfo'), header=TRUE)
 head(f3)
 ```
 
-demo of whole C-GWAS procedure implementing
+A demo of whole C-GWAS procedure implementing:
 
 ```R
-outputPath <- getwd() # the output files are in the current working directory
+outputPath <- getwd() # set the directory of the output files
 ExDataDir <- system.file("extdata", package = "CGWAS")
 gwasFileName <- c("Y1.assoc", "Y2.assoc", "Y3.assoc",
                   "Y4.assoc", "Y5.assoc", "Y6.assoc",
@@ -87,7 +87,7 @@ cgwas(gwasFilePath, snpFilePath, outputPath,
       traitName = traitName, mrafFilePath = mrafFilePath, indSNPN = indSNPN)
 ```
 
-This example takes 202.6 seconds on a laptop with 12 CPU cores (i7-9750H CPU @ 2.60 GHz). Since CGWAS uses half of the available cores for parallel computing by default, the number of parallel threads is 6.
+This example takes 202.6 seconds on a laptop with 12 CPU cores (i7-9750H CPU @ 2.60 GHz). Since CGWAS uses half of the available cores for parallel computing by default, the number of parallel threads is 6 in this case.
 
 ## Instructions for Use
 
@@ -95,11 +95,11 @@ CGWAS implements whole procedure into a single function `cgwas`.
 
 The input files of `cgwas` contains GWAS summary statistics files,  SNP information file and mean reference allele frequency (MRAF) file. 
 
-**GWAS summary statistics files**	These files should be in the space or tab delimited format. Each file contains two and only two columns. The first column is the regression betas of all SNPs and the second column is the P-values of all SNPs. These files require a header line with two items: BETA and P. Note that for each SNP, all betas must be based on the same reference allele. A reference to the GWAS summary statistics file is provided in the example.
+**GWAS summary statistics files**	These files should be in the space or tab delimited format. Each file contains two and only two columns. The first column is the regression betas of all SNPs and the second column is the P-values of all SNPs. These files require a header line with two items: BETA and P. Note that for each SNP, all betas must be based on the same reference allele. A reference to the GWAS summary statistics file is provided in the [example](#example1).
 
-**SNP information file**	A space delimited file consisting of three columns representing chromosome, base pair and SNP identifier. The file requires a header line with three items CHR, BP and SNP in the specified order. A reference to the SNP information file is provided in the example.
+**SNP information file**	A space delimited file consisting of three columns representing chromosome, base pair and SNP identifier. The file requires a header line with three items CHR, BP and SNP in the specified order. A reference to the SNP information file is provided in the [example](#example2).
 
-**MRAF file**	This file requires a header MRAF, and contains one column of mean frequency of the reference allele of each SNP. Note that the reference allele must correspond to the beta in the input GWAS. Reference allele frequencies are used to estimate the weights of input GWASs and all intermediate GWASs. This MRAF file is recommended but not obligatory with default `NULL`. If `NULL`, weights will still be estimated by approximations. A reference to the MRAF file is provided in the example.
+**MRAF file**	This file requires a header MRAF, and contains one column of mean frequency of the reference allele of each SNP. Note that the reference allele must correspond to the beta in the input GWAS. Reference allele frequencies are used to estimate the weights of input GWASs and all intermediate GWASs. This MRAF file is recommended but not obligatory with default `NULL`. If `NULL`, weights will still be estimated by approximations. A reference to the MRAF file is provided in the [example](#example3).
 
 The final and intermediate results of `cgwas` are saved in the output directory specified by user. Two new folders will be created in this directory: `Results/` and `Details/`.
 
