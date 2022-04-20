@@ -105,9 +105,9 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' effect correlation (\code{Pi}) for combining two GWASs in \code{i-EbICoW},
 #' range \eqn{[0, 2)}. The default value is 0.05.
 #' @param hiCorRestc an internal threshold of \code{i-EbICoW} to avoid abnormal
-#' values when solving large Psi in the presence of strong collinearity, range
-#' \eqn{(0,1)}. The default value is 0.5. GWASs with \code{psi > hiCorRestc}
-#' in \code{i-EbICoW} iterations are forced combined.
+#' values when solving large \code{Psi} in the presence of strong collinearity,
+#' range \eqn{(0,1)}. The default value is 0.5. GWASs with
+#' \code{psi > hiCorRestc} in \code{i-EbICoW} iterations are forced combined.
 #' @param sampleNInc an internal threshold of \code{i-EbICoW}, requesting that
 #' the effective sample size (Ess) of EbICoW after combination should be larger
 #' than the weighted sum of Ess of the two GWASs before combination. Typically,
@@ -124,7 +124,7 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' \code{LoSpanV = length(LoInrP)+1}.
 #' @param lociInr an integer specifying the physical distance in base pair
 #' between two SNPs that should be considered as in distinct loci, value range
-#' \eqn{[1e5,1e6]}. The default value is \eqn{2.5e5}, i.e., \eqn{250 kbp}.
+#' \eqn{[1e5,1e6]}. The default value is \eqn{2.5e5}, i.e., \code{250 kbp}.
 #'
 #' @section Legends of tables and figures of main results:
 #' \describe{
@@ -162,7 +162,7 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' (\code{traitName}).}
 #' \item{\code{SummaryGetPsi.txt}}{This table contains Pearson correlation
 #' coefficient of test statistics from all SNPs (StatCor), \code{getPsi} result
-#' (Psi) and \code{getPi} result (considering all SNPs, allPi; considering only
+#' (\code{Psi}) and \code{getPi} result (considering all SNPs, allPi; considering only
 #' significant SNPs, sigPi) for all GWAS pairs (GWAS1 and GWAS2).}
 #' \item{\code{EbICoW.txt}}{This table contains effect of EbICoW GWAS (define as
 #' mean chi-square of all SNPs minus one, AllEff), Equivalent sample size (Ess),
@@ -172,19 +172,19 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' GWAS (\code{traitName}).}
 #' \item{\code{SummaryEbICoWGetPsi.txt}}{This table contains Pearson correlation
 #' coefficient of test statistics from all SNPs (StatCor), \code{getPsi} result
-#' (Psi) and \code{getPi} result (considering all SNPs, allPi; considering only
+#' (\code{Psi}) and \code{getPi} result (considering all SNPs, allPi; considering only
 #' significant SNPs, sigPi) for all EbICoW GWAS pairs (GWAS1 and GWAS2).}
 #' \item{\code{Summaryi-EbICoW.txt}}{This table contains the details of each
 #' \code{i-EbICoW} iteration round.
 #' 1) Iteration round count (Round);
 #' 2) Two GWASs used in the iteration (GWAS1 and GWAS2);
 #' 3) Name of combined GWAS (NewGWAS);
-#' 4) Type of Pi and h chosen by optimize function (Piall and hall, AEC; Pisig
+#' 4) Type of \code{Pi} and h chosen by optimize function (Piall and hall, AEC; Pisig
 #' and hsig, SEC; Pistb and hstb, STB);
 #' 5) Whether pass evaluation of evaluate function (Evaluate);
 #' 6) Effect of GWAS1, GWAS2 and NewGWAS (define as mean chi-square of all SNPs
 #' minus one, Eff1X2, Eff2X2 and NewEffX2);
-#' 7) \code{getPsi} and \code{getPi} result (Psi; considering all SNPs, allPi;
+#' 7) \code{getPsi} and \code{getPi} result (\code{Psi}; considering all SNPs, allPi;
 #' considering only significant SNPs, sigPi);
 #' 8) Significant SNP number using parameter threshold \code{pMain}, including
 #' in GWAS1 (sigSNP1N), GWAS2 (sigSNP2N), MinGWAS of GWAS1 and GWAS2
