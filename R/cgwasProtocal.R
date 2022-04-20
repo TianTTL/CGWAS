@@ -238,7 +238,7 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' head(f3)
 #'
 #' # demo of whole C-GWAS procedure implementing
-#' # the output files is in the current working directory
+#' # the output files are in the current working directory
 #' ExDataDir <- system.file("extdata", package = "CGWAS")
 #' gwasFileName <- c("Y1.assoc", "Y2.assoc", "Y3.assoc",
 #'                   "Y4.assoc", "Y5.assoc", "Y6.assoc",
