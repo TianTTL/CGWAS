@@ -38,6 +38,7 @@ step1 <- function(cgwasenv) {
                 row.names = F, col.names = F, quote = F)
     logOutput(length(naid), " excluded SNPs written to Results/ExcludedSNP.txt\n", cgwasenv = cgwasenv)
   }
+  df.snp <- as.data.frame(df.snp)
   snpPosOrder <- order(df.snp[,1], df.snp[,2])
   df.snp <- df.snp[snpPosOrder,]
   data.table::fwrite(df.snp,

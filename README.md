@@ -19,6 +19,3 @@ library(devtools)
 install_github('https://github.com/TianTTL/CGWAS')
 ```
 
-## Citation
-If you use the C-GWAS, please cite
-[placeholder]()
