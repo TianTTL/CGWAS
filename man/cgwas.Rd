@@ -37,7 +37,7 @@ SNPs. These files require a header line with two items: BETA and P. Note that
 for each SNP, all betas must be based on the same reference allele.}
 
 \item{snpFilePath}{string indicating the path to input SNP information file,
-a space delimitated file consisting of three columns representing chromosome,
+a space delimited file consisting of three columns representing chromosome,
 base pair and SNP identifier. The file requires a header line with three
 items CHR, BP and SNP in the specified order.}
 
@@ -45,12 +45,14 @@ items CHR, BP and SNP in the specified order.}
 directory, two new folders will be created, the \code{Results/} contains main
 results and the \code{Details/} contains all intermediate results.}
 
-\item{traitName}{a string list of trait names.}
+\item{traitName}{a vector of strings of trait names. The order must be the
+same as input GWASs. The basename of GWAS files will be set to trait names by
+default.}
 
 \item{exNa}{logical. If \code{TRUE}, SNPs with missing values in at least one
 input GWAS will be removed and will not appear in the output files. All
-removed SNPs will be listed in a file named ExcludedSNP.txt; if \code{FALSE},
-the NA is replaced with BETA=0 and P=1. Default is \code{TRUE}.}
+removed SNPs will be listed in a file named \code{ExcludedSNP.txt}; if
+\code{FALSE}, the NA is replaced with BETA=0 and P=1. Default is \code{TRUE}.}
 
 \item{mrafFilePath}{a string indicating the path to the mean reference allele
 frequency (MRAF) file, which requires a header MRAF, and contains one column
@@ -154,7 +156,7 @@ type-I error rate in an empirical manner via simulations and adjust the
 resultant p-values in such a way that they are directly comparable with those
 from traditional GWAS of a single trait.
 
-The summary and immediate results of C-GWAS analysis are saved in the output
+The final and intermediate results of C-GWAS analysis are saved in the output
 directory \code{outputPath}. Two new folders will be created in this
 directory: \code{Results/} and \code{Details/}.
 }
@@ -272,17 +274,17 @@ the C-GWAS analysis will be implemented in a later version, e.g., \code{getI},
 }
 
 \examples{
-# an example of the input GWAS file
+# example of the input GWAS file
 f1 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
 'Y1.assoc'), header=TRUE)
 head(f1)
 
-# an example of the input mean reference allele frequency file
+# example of the input mean reference allele frequency file
 f2 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
 'MRAF'), header=TRUE)
 head(f2)
 
-# an example of the input SNP information file
+# example of the input SNP information file
 f3 <- read.table(file.path(system.file("extdata", package = "CGWAS"),
 'SnpInfo'), header=TRUE)
 head(f3)

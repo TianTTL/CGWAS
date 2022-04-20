@@ -36,7 +36,7 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' resultant p-values in such a way that they are directly comparable with those
 #' from traditional GWAS of a single trait.
 #'
-#' The summary and immediate results of C-GWAS analysis are saved in the output
+#' The final and intermediate results of C-GWAS analysis are saved in the output
 #' directory \code{outputPath}. Two new folders will be created in this
 #' directory: \code{Results/} and \code{Details/}.
 #'
@@ -47,17 +47,19 @@ CGWAS_ENV <- setRefClass("CGWAS_ENV",
 #' SNPs. These files require a header line with two items: BETA and P. Note that
 #' for each SNP, all betas must be based on the same reference allele.
 #' @param snpFilePath string indicating the path to input SNP information file,
-#' a space delimitated file consisting of three columns representing chromosome,
+#' a space delimited file consisting of three columns representing chromosome,
 #' base pair and SNP identifier. The file requires a header line with three
 #' items CHR, BP and SNP in the specified order.
 #' @param outputPath a string indicating the path to output directory. In this
 #' directory, two new folders will be created, the \code{Results/} contains main
 #' results and the \code{Details/} contains all intermediate results.
-#' @param traitName a string list of trait names.
+#' @param traitName a vector of strings of trait names. The order must be the
+#' same as input GWASs. The basename of GWAS files will be set to trait names by
+#' default.
 #' @param exNa logical. If \code{TRUE}, SNPs with missing values in at least one
 #' input GWAS will be removed and will not appear in the output files. All
-#' removed SNPs will be listed in a file named ExcludedSNP.txt; if \code{FALSE},
-#' the NA is replaced with BETA=0 and P=1. Default is \code{TRUE}.
+#' removed SNPs will be listed in a file named \code{ExcludedSNP.txt}; if
+#' \code{FALSE}, the NA is replaced with BETA=0 and P=1. Default is \code{TRUE}.
 #' @param mrafFilePath a string indicating the path to the mean reference allele
 #' frequency (MRAF) file, which requires a header MRAF, and contains one column
 #' of mean frequency of the reference allele of each SNP. Note that the
