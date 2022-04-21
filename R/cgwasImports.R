@@ -1,5 +1,5 @@
 #' @import utils grDevices graphics stats
-#' @importFrom data.table fread fwrite
+#' @importFrom data.table data.table fread fwrite
 #' @importFrom foreach foreach %dopar%
 #' @importFrom doParallel registerDoParallel
 #' @importFrom parallel makeCluster stopCluster clusterEvalQ
